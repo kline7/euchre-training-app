@@ -243,7 +243,7 @@ export default function PlayPage() {
         <BiddingPanel
           phase={game.phase === 'bidding1' ? 'round1' : 'round2'}
           upcardSuit={game.upcardSuit}
-          isDealer={game.dealer === HUMAN_SEAT}
+          isDealer={game.nextSeat === game.dealer}
           onBid={handleBid}
         />
       )}

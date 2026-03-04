@@ -10,7 +10,7 @@ use crate::game::scoring;
 use crate::ai::dds::Solver;
 use crate::ai::pimc;
 use crate::ai::blunder;
-use crate::ai::opponents::{Difficulty, choose_play, choose_bid};
+use crate::ai::opponents::{Difficulty, choose_play, choose_bid_for};
 
 // --- Serializable types for JS interop ---
 
@@ -18,6 +18,12 @@ use crate::ai::opponents::{Difficulty, choose_play, choose_bid};
 pub struct JsCard {
     pub suit: u8,
     pub rank: u8,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct JsTrickCard {
+    pub seat: u8,
+    pub card: JsCard,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -113,6 +119,12 @@ pub struct Engine {
     solver: Solver,
     rng: ChaCha20Rng,
     difficulty: Difficulty,
+    /// Current bidding seat (cycles left of dealer → dealer)
+    bid_seat: u8,
+    /// How many players have passed this bidding round
+    pass_count: u8,
+    /// The turned-down suit (from round 1), cannot be called in round 2
+    turned_down_suit: Option<Suit>,
 }
 
 #[wasm_bindgen]
@@ -128,11 +140,15 @@ impl Engine {
         let upcard = pick_upcard(&hands, &mut rng);
         let state = GameState::new_hand(hands, upcard, config.dealer, config.scores);
 
+        let bid_seat = (config.dealer + 1) % 4; // Left of dealer bids first
         Ok(Engine {
             state,
             solver: Solver::new(),
             rng,
             difficulty: js_to_difficulty(config.difficulty),
+            bid_seat,
+            pass_count: 0,
+            turned_down_suit: None,
         })
     }
 
@@ -168,7 +184,10 @@ impl Engine {
 
     /// Get the seat index of the next player to act.
     pub fn next_to_play(&self) -> u8 {
-        self.state.next_to_play()
+        match self.state.phase {
+            GamePhase::BiddingRound1 | GamePhase::BiddingRound2 => self.bid_seat,
+            _ => self.state.next_to_play(),
+        }
     }
 
     /// Play a card for the current player.
@@ -188,30 +207,52 @@ impl Engine {
     }
 
     /// Get AI's chosen bid for the current position.
-    pub fn get_ai_bid(&mut self) -> JsValue {
-        let bid = choose_bid(&self.state, self.difficulty, &mut self.rng);
-        let bid_val: u8 = match bid {
+    /// Returns a number: 0=Pass, 1=OrderUp, 2-5=CallSuit(H/D/C/S), 6=GoAlone
+    pub fn get_ai_bid(&mut self) -> u8 {
+        let bid = choose_bid_for(&self.state, self.difficulty, &mut self.rng, self.bid_seat);
+        match bid {
             BidAction::Pass => 0,
             BidAction::OrderUp => 1,
             BidAction::CallSuit(suit) => 2 + suit as u8,
             BidAction::GoAlone => 6,
-        };
-        serde_wasm_bindgen::to_value(&bid_val).unwrap()
+        }
     }
 
     /// Apply a bid action. bid_val: 0=Pass, 1=OrderUp, 2-5=CallSuit(H/D/C/S), 6=GoAlone
     pub fn apply_bid(&mut self, bid_val: u8) {
-        let seat = self.state.next_to_play();
+        let seat = self.bid_seat;
         match bid_val {
-            0 => { /* Pass — advance to next bidder handled by phase logic */ }
+            0 => {
+                // Pass — advance to next bidder
+                self.pass_count += 1;
+
+                if self.state.phase == GamePhase::BiddingRound1 && self.pass_count >= 4 {
+                    // All 4 passed in round 1 → move to round 2
+                    self.turned_down_suit = Some(self.state.upcard.suit);
+                    self.state.phase = GamePhase::BiddingRound2;
+                    self.bid_seat = (self.state.dealer + 1) % 4;
+                    self.pass_count = 0;
+                } else if self.state.phase == GamePhase::BiddingRound2 && self.pass_count >= 4 {
+                    // All passed round 2 — shouldn't happen with stuck dealer,
+                    // but handle gracefully: re-deal (reset)
+                    self.state.phase = GamePhase::BiddingRound1;
+                    self.pass_count = 0;
+                    self.bid_seat = (self.state.dealer + 1) % 4;
+                } else {
+                    self.bid_seat = (seat + 1) % 4;
+                }
+            }
             1 => {
-                // Order up — set trump, advance to DealerDiscard or Playing
+                // Order up — dealer picks up upcard, set trump
                 self.state.trump = self.state.upcard.suit;
                 self.state.maker = seat;
-                // Dealer picks up upcard (simplified — swap weakest card)
+                // Dealer picks up upcard and discards weakest
+                self.do_dealer_pickup();
                 self.state.phase = GamePhase::Playing;
+                self.state.lead_seat = (self.state.dealer + 1) % 4;
             }
             2..=5 => {
+                // Call suit in round 2
                 let suit = match bid_val - 2 {
                     0 => Suit::Hearts,
                     1 => Suit::Diamonds,
@@ -221,13 +262,61 @@ impl Engine {
                 self.state.trump = suit;
                 self.state.maker = seat;
                 self.state.phase = GamePhase::Playing;
+                self.state.lead_seat = (self.state.dealer + 1) % 4;
             }
             6 => {
+                // GoAlone — must be combined with a preceding order-up/call
+                // Treat as order-up + alone for round 1, or last-called suit for round 2
                 self.state.alone = true;
                 let partner = (seat + 2) % 4;
                 self.state.sitting_out = Some(partner);
+                self.state.maker = seat;
+
+                if self.state.phase == GamePhase::BiddingRound1 {
+                    self.state.trump = self.state.upcard.suit;
+                    self.do_dealer_pickup();
+                }
+                self.state.phase = GamePhase::Playing;
+                self.state.lead_seat = (self.state.dealer + 1) % 4;
             }
             _ => {}
+        }
+    }
+
+    /// Dealer picks up upcard and discards the weakest card from hand.
+    fn do_dealer_pickup(&mut self) {
+        let dealer = self.state.dealer as usize;
+        let upcard = self.state.upcard;
+        let trump = self.state.trump;
+
+        // Add upcard to dealer's hand
+        self.state.hands[dealer].insert(upcard);
+
+        // Discard weakest card (lowest trick_power non-trump, or lowest trump)
+        let hand = self.state.hands[dealer];
+        let mut weakest: Option<Card> = None;
+        let mut weakest_power: u8 = u8::MAX;
+        let mut weakest_is_trump = true;
+
+        for card in hand.iter() {
+            let is_trump = card.effective_suit(trump) == trump;
+            let power = card.trick_power(trump);
+
+            let beats_weakest = match (is_trump, weakest_is_trump) {
+                (false, true) => true,     // Non-trump weaker than trump
+                (true, false) => false,    // Trump stronger than non-trump
+                _ => power < weakest_power, // Same category: lower power = weaker
+            };
+
+            if weakest.is_none() || beats_weakest {
+                weakest = Some(card);
+                weakest_power = power;
+                weakest_is_trump = is_trump;
+            }
+        }
+
+        if let Some(discard) = weakest {
+            self.state.hands[dealer].remove(discard);
         }
     }
 
@@ -283,10 +372,10 @@ impl Engine {
         serde_wasm_bindgen::to_value(&js_analysis).unwrap()
     }
 
-    /// Get the current trick cards.
+    /// Get the current trick cards as [{seat, card}, ...].
     pub fn current_trick(&self) -> JsValue {
-        let trick: Vec<(u8, JsCard)> = self.state.current_trick.iter()
-            .map(|tc| (tc.seat, card_to_js(tc.card)))
+        let trick: Vec<JsTrickCard> = self.state.current_trick.iter()
+            .map(|tc| JsTrickCard { seat: tc.seat, card: card_to_js(tc.card) })
             .collect();
         serde_wasm_bindgen::to_value(&trick).unwrap()
     }

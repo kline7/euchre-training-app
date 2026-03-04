@@ -33,9 +33,13 @@ pub fn choose_play(state: &GameState, difficulty: Difficulty, rng: &mut ChaCha20
     }
 }
 
-/// Choose a bid action for the given AI difficulty.
-pub fn choose_bid(state: &GameState, difficulty: Difficulty, _rng: &mut ChaCha20Rng) -> BidAction {
-    let seat = state.next_to_play();
+/// Choose a bid action for the given AI difficulty. Uses state.next_to_play() for seat.
+pub fn choose_bid(state: &GameState, difficulty: Difficulty, rng: &mut ChaCha20Rng) -> BidAction {
+    choose_bid_for(state, difficulty, rng, state.next_to_play())
+}
+
+/// Choose a bid action for a specific seat.
+pub fn choose_bid_for(state: &GameState, difficulty: Difficulty, _rng: &mut ChaCha20Rng, seat: Seat) -> BidAction {
     let hand = state.hands[seat as usize];
     let trump_if_ordered = state.upcard.suit;
 

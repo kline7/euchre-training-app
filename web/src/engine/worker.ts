@@ -45,7 +45,7 @@ const api = {
     return engine.get_ai_play();
   },
 
-  getAiBid(): number {
+  async getAiBid(): Promise<number> {
     return engine.get_ai_bid();
   },
 
