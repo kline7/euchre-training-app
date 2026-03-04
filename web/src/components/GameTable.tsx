@@ -98,7 +98,7 @@ export default function GameTable({
           <span>Them: {scores[1]}</span>
         </div>
         <div className="tricks-row">
-          Tricks: {tricksWon[0]} - {tricksWon[1]} | Hand {trickNumber}/5
+          Tricks: {tricksWon[0]} - {tricksWon[1]} | Trick {trickNumber}/5
         </div>
         <div className="trump-row">
           Trump: <span style={{ color: trumpSuit < 2 ? '#e74c3c' : '#2c3e50' }}>

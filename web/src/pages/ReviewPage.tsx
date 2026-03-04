@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useReducer } from 'react';
+import { useEffect, useReducer } from 'react';
 import { useParams } from 'wouter';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db/schema';
-import type { CardRecord, PlayRecord, GameRecord, DecisionRecord } from '../db/schema';
+import type { CardRecord, DecisionRecord } from '../db/schema';
 import CardComponent from '../components/cards/Card';
 import './ReviewPage.css';
 

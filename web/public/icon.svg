@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="96" fill="#1a1a2e"/>
+  <g transform="translate(256,240)">
+    <!-- Spade shape -->
+    <path d="M0-140 C-60-100 -130-30 -130 40 C-130 100 -80 130 -30 130 C-10 130 0 120 0 120 C0 120 10 130 30 130 C80 130 130 100 130 40 C130-30 60-100 0-140Z" fill="#2e7d32"/>
+    <!-- Spade stem -->
+    <rect x="-12" y="100" width="24" height="60" rx="4" fill="#2e7d32"/>
+  </g>
+  <text x="256" y="420" text-anchor="middle" font-family="system-ui,-apple-system,sans-serif" font-size="72" font-weight="700" fill="#e0e0e0">ET</text>
+</svg>

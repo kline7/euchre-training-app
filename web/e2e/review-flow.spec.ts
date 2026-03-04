@@ -24,17 +24,19 @@ test.describe('Review Flow', () => {
   test('settings persist across navigation', async ({ page }) => {
     await page.goto('/settings');
 
-    // Change difficulty to Advanced (index 2)
-    const diffSelect = page.locator('select').first();
-    await diffSelect.selectOption({ index: 2 });
+    // Click Advanced difficulty button (3rd button, index 2)
+    const advancedBtn = page.locator('.difficulty-btn', { hasText: 'Advanced' });
+    await advancedBtn.click();
+
+    // Verify it's selected
+    await expect(advancedBtn).toHaveClass(/active/, { timeout: 2_000 });
 
     // Navigate away and back
     await page.goto('/history');
     await page.goto('/settings');
 
-    // Should still be Advanced
-    const value = await page.locator('select').first().inputValue();
-    expect(Number(value)).toBe(2);
+    // Should still be Advanced (active class persisted via Zustand)
+    await expect(page.locator('.difficulty-btn.active')).toContainText('Advanced', { timeout: 2_000 });
   });
 
   test('game list items navigate to review page', async ({ page }) => {

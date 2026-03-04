@@ -16,7 +16,9 @@ test.describe('Euchre Training App — Smoke Tests', () => {
 
   test('2. Settings page renders controls', async ({ page }) => {
     await page.goto('/settings');
-    await expect(page.locator('select, input')).toHaveCount(3, { timeout: 5_000 });
+    // 4 difficulty buttons + 2 checkboxes
+    await expect(page.locator('.difficulty-btn')).toHaveCount(4, { timeout: 5_000 });
+    await expect(page.locator('input[type="checkbox"]')).toHaveCount(2, { timeout: 5_000 });
   });
 
   test('3. History page loads', async ({ page }) => {

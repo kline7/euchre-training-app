@@ -36,7 +36,7 @@ function formatCard(card: CardData): string {
 export default function HandSummary({
   decisions,
   totalWpc,
-  totalEtd,
+  totalEtd: _,
   tricksWon,
   handPoints,
   onContinue,

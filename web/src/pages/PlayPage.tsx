@@ -6,6 +6,7 @@ import type { HandRecord, BidRecord, PlayRecord, DecisionRecord, HandAnalysisRec
 import GameTable from '../components/GameTable';
 import BiddingPanel from '../components/BiddingPanel';
 import HandSummary from '../components/HandSummary';
+import GameOver from '../components/GameOver';
 import type { CardData } from '../components/cards/Card';
 
 interface TrickCard {
@@ -21,7 +22,7 @@ interface Decision {
   grade: string;
 }
 
-type GamePhase = 'loading' | 'bidding1' | 'bidding2' | 'playing' | 'scoring' | 'summary';
+type GamePhase = 'loading' | 'bidding1' | 'bidding2' | 'playing' | 'scoring' | 'summary' | 'gameover';
 
 interface GameState {
   phase: GamePhase;
@@ -39,6 +40,7 @@ interface GameState {
   decisions: Decision[];
   totalWpc: number;
   totalEtd: number;
+  handsPlayed: number;
 }
 
 type GameAction =
@@ -72,6 +74,7 @@ const initialState: GameState = {
   decisions: [],
   totalWpc: 0,
   totalEtd: 0,
+  handsPlayed: 0,
 };
 
 const HUMAN_SEAT = 0;
@@ -203,7 +206,7 @@ export default function PlayPage() {
           analysis: [],
         });
         await startRecording(seed);
-        recording.current.gameId = gameId;
+        recording.current.gameId = gameId ?? null;
 
         setEngineReady(true);
         await processAiTurns();
@@ -293,12 +296,22 @@ export default function PlayPage() {
       const result = await engine.scoreHand();
       const handPoints = (result as any)[0];
       await saveHand(handPoints);
-      dispatch({
-        type: 'SET_STATE',
-        payload: { phase: 'summary', handPoints },
-      });
+      const newHandsPlayed = game.handsPlayed + 1;
+      const updatedScores = await engine.scores() as [number, number];
+
+      if (updatedScores[0] >= 10 || updatedScores[1] >= 10) {
+        dispatch({
+          type: 'SET_STATE',
+          payload: { phase: 'gameover', handPoints, handsPlayed: newHandsPlayed, scores: updatedScores },
+        });
+      } else {
+        dispatch({
+          type: 'SET_STATE',
+          payload: { phase: 'summary', handPoints, handsPlayed: newHandsPlayed },
+        });
+      }
     }
-  }, [processAiTurns, setThinking, recordPlay, saveHand, game.decisions, game.totalWpc, game.totalEtd]);
+  }, [processAiTurns, setThinking, recordPlay, saveHand, game.decisions, game.totalWpc, game.totalEtd, game.handsPlayed]);
 
   const handleBid = useCallback(async (bidVal: number) => {
     const engine = getEngine();
@@ -325,6 +338,26 @@ export default function PlayPage() {
     await startRecording(seed);
     await processAiTurns();
   }, [game.dealer, game.scores, difficulty, processAiTurns, startRecording]);
+
+  const handleNewGame = useCallback(async () => {
+    const engine = getEngine();
+    const seed = Math.floor(Math.random() * 2 ** 32);
+    await engine.init({ seed, difficulty, dealer: 0, scores: [0, 0] });
+
+    const gameId = await db.games.add({
+      createdAt: new Date(),
+      seed,
+      difficulty,
+      hands: [],
+      finalScore: [0, 0],
+      analysis: [],
+    });
+
+    dispatch({ type: 'RESET' });
+    await startRecording(seed);
+    recording.current.gameId = gameId ?? null;
+    await processAiTurns();
+  }, [difficulty, processAiTurns, startRecording]);
 
   if (engineError) {
     return (
@@ -377,6 +410,16 @@ export default function PlayPage() {
           tricksWon={game.tricksWon}
           handPoints={game.handPoints}
           onContinue={handleContinue}
+        />
+      )}
+
+      {game.phase === 'gameover' && (
+        <GameOver
+          scores={game.scores}
+          totalWpc={game.totalWpc}
+          handsPlayed={game.handsPlayed}
+          gameId={recording.current.gameId}
+          onNewGame={handleNewGame}
         />
       )}
     </div>

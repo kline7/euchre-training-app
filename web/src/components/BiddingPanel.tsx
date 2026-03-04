@@ -18,16 +18,36 @@ export default function BiddingPanel({ phase, upcardSuit, isDealer, onBid }: Bid
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       style={{
-        background: 'rgba(0, 0, 0, 0.7)',
-        borderRadius: 8,
-        padding: '12px 16px',
+        background: 'rgba(0, 0, 0, 0.8)',
+        borderRadius: 12,
+        padding: '16px 20px',
         display: 'flex',
         flexDirection: 'column',
-        gap: 8,
-        maxWidth: 300,
+        gap: 12,
+        maxWidth: 320,
         margin: '12px auto',
       }}
     >
+      {/* Upcard display */}
+      {phase === 'round1' && (
+        <div style={{ textAlign: 'center' }}>
+          <div style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            width: 48,
+            height: 64,
+            background: '#fff',
+            borderRadius: 6,
+            border: '2px solid #ccc',
+            fontSize: '1.8rem',
+            color: SUIT_COLORS[upcardSuit],
+          }}>
+            {SUIT_SYMBOLS[upcardSuit]}
+          </div>
+        </div>
+      )}
+
       <div style={{ color: '#e0e0e0', fontSize: '0.85rem', textAlign: 'center' }}>
         {phase === 'round1'
           ? `Order up ${SUIT_SYMBOLS[upcardSuit]} ${SUIT_NAMES[upcardSuit]}?`
@@ -73,8 +93,8 @@ function BidButton({ label, onClick, color }: { label: string; onClick: () => vo
         color: '#fff',
         border: 'none',
         borderRadius: 6,
-        padding: '6px 14px',
-        fontSize: '0.8rem',
+        padding: '8px 16px',
+        fontSize: '0.85rem',
         fontWeight: 600,
         cursor: 'pointer',
       }}
