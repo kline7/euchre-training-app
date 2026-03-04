@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useReducer, useRef } from 'react';
+import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { useUI, useSettings } from '../stores/store';
 import { getEngine } from '../engine/bridge';
 import { db } from '../db/schema';
-import type { HandRecord, BidRecord, DecisionRecord, HandAnalysisRecord } from '../db/schema';
+import type { HandRecord, BidRecord, PlayRecord, DecisionRecord, HandAnalysisRecord } from '../db/schema';
 import GameTable from '../components/GameTable';
 import BiddingPanel from '../components/BiddingPanel';
 import HandSummary from '../components/HandSummary';
@@ -84,6 +84,7 @@ export default function PlayPage() {
   const difficulty = useSettings((s) => s.difficulty);
 
   const [game, dispatch] = useReducer(gameReducer, initialState);
+  const [engineError, setEngineError] = useState<string | null>(null);
 
   // Game recording (mutable ref — doesn't trigger re-renders)
   const recording = useRef<{
@@ -208,6 +209,7 @@ export default function PlayPage() {
         await processAiTurns();
       } catch (err) {
         console.error('Engine init failed:', err);
+        setEngineError(err instanceof Error ? err.message : 'Failed to initialize engine');
       }
     }
     init();
@@ -323,6 +325,16 @@ export default function PlayPage() {
     await startRecording(seed);
     await processAiTurns();
   }, [game.dealer, game.scores, difficulty, processAiTurns, startRecording]);
+
+  if (engineError) {
+    return (
+      <div className="engine-error">
+        <h2>Engine Error</h2>
+        <p>{engineError}</p>
+        <button onClick={() => window.location.reload()}>Retry</button>
+      </div>
+    );
+  }
 
   if (!engineReady) {
     return (

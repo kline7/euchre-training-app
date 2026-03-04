@@ -1,0 +1,16 @@
+{
+  "name": "Euchre Trainer",
+  "short_name": "Euchre",
+  "description": "AI-powered Euchre training — play, learn, improve",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#1a1a2e",
+  "theme_color": "#2e7d32",
+  "icons": [
+    {
+      "src": "/vite.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}

@@ -149,7 +149,39 @@
 /* Mobile responsive */
 @media (max-width: 600px) {
   .game-table {
-    height: 420px;
+    height: 85vw;
+    min-height: 360px;
+    max-height: 480px;
     border-radius: 8px;
+    border-width: 2px;
+  }
+
+  .score-panel {
+    font-size: 0.65rem;
+    padding: 4px 6px;
+  }
+
+  .dealer-marker {
+    width: 20px;
+    height: 20px;
+    font-size: 0.6rem;
+  }
+
+  .dealer-bottom { bottom: 85px; transform: translateX(40px); }
+  .dealer-top { top: 85px; transform: translateX(40px); }
+  .dealer-left { left: 75px; }
+  .dealer-right { right: 75px; }
+
+  .hand-label {
+    font-size: 0.6rem;
+  }
+}
+
+@media (max-width: 400px) {
+  .game-table {
+    max-width: 100%;
+    border-radius: 0;
+    border-left: none;
+    border-right: none;
   }
 }

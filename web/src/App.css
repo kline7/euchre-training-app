@@ -63,3 +63,38 @@
 .game-list li:hover {
   background: #2a2a3e;
 }
+
+.engine-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 60vh;
+  color: #e74c3c;
+  text-align: center;
+  padding: 1rem;
+}
+
+.engine-error h2 {
+  margin-bottom: 0.5rem;
+}
+
+.engine-error p {
+  color: #aaa;
+  margin-bottom: 1rem;
+  max-width: 400px;
+}
+
+.engine-error button {
+  background: #2e7d32;
+  color: white;
+  border: none;
+  padding: 0.5rem 1.5rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.engine-error button:hover {
+  background: #388e3c;
+}

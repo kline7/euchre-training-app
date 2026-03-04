@@ -118,7 +118,7 @@ export default function GameTable({
             const offset = TRICK_OFFSETS[pos];
             return (
               <motion.div
-                key={`${tc.card.suit}-${tc.card.rank}`}
+                key={`${tc.seat}-${tc.card.suit}-${tc.card.rank}`}
                 className={`trick-card trick-${pos}`}
                 initial={{ scale: 0.5, opacity: 0, x: offset.x * 2, y: offset.y * 2 }}
                 animate={{ scale: 1, opacity: 1, x: offset.x, y: offset.y }}
