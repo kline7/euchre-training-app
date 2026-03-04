@@ -56,7 +56,7 @@ const api = {
   },
 
   evaluatePlays(numDeterminizations: number, seed: number) {
-    return engine.evaluate_plays(numDeterminizations, seed);
+    return engine.evaluate_plays(numDeterminizations, BigInt(seed));
   },
 
   analyzeDecision(pimcResult: any, playedCard: { suit: number; rank: number }) {

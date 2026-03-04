@@ -79,6 +79,9 @@ const initialState: GameState = {
 
 const HUMAN_SEAT = 0;
 
+/** Abort signal for cancelling stale processAiTurns loops (e.g. StrictMode double-mount). */
+interface AbortSignal { aborted: boolean }
+
 export default function PlayPage() {
   const engineReady = useUI((s) => s.engineReady);
   const setEngineReady = useUI((s) => s.setEngineReady);
@@ -88,6 +91,9 @@ export default function PlayPage() {
 
   const [game, dispatch] = useReducer(gameReducer, initialState);
   const [engineError, setEngineError] = useState<string | null>(null);
+
+  // Guard against concurrent operations (double-click, overlapping AI turns)
+  const busyRef = useRef(false);
 
   // Game recording (mutable ref — doesn't trigger re-renders)
   const recording = useRef<{
@@ -162,14 +168,17 @@ export default function PlayPage() {
     return { gamePhase, nextSeat };
   }, []);
 
-  // Process AI turns (bidding or playing) until it's the human's turn
-  const processAiTurns = useCallback(async () => {
+  // Process AI turns (bidding or playing) until it's the human's turn.
+  // Accepts an optional abort signal so the init effect can cancel on cleanup.
+  const processAiTurns = useCallback(async (signal?: AbortSignal) => {
     const engine = getEngine();
     let { gamePhase, nextSeat } = await syncState();
 
     // AI bidding loop
     while ((gamePhase === 'bidding1' || gamePhase === 'bidding2') && nextSeat !== HUMAN_SEAT) {
+      if (signal?.aborted) return { gamePhase, nextSeat };
       await new Promise((r) => setTimeout(r, 400));
+      if (signal?.aborted) return { gamePhase, nextSeat };
       const aiBid = await engine.getAiBid();
       recordBid(nextSeat, aiBid);
       await engine.applyBid(aiBid);
@@ -178,7 +187,9 @@ export default function PlayPage() {
 
     // AI playing loop (if AI leads after bidding resolves)
     while (gamePhase === 'playing' && nextSeat !== HUMAN_SEAT) {
+      if (signal?.aborted) return { gamePhase, nextSeat };
       await new Promise((r) => setTimeout(r, 300));
+      if (signal?.aborted) return { gamePhase, nextSeat };
       const aiCard = await engine.getAiPlay() as CardData;
       recordPlay(nextSeat, aiCard);
       await engine.playCard(aiCard);
@@ -188,13 +199,17 @@ export default function PlayPage() {
     return { gamePhase, nextSeat };
   }, [syncState, recordBid, recordPlay]);
 
-  // Initialize engine on mount
+  // Initialize engine on mount — StrictMode-safe via abort signal
   useEffect(() => {
+    const signal: AbortSignal = { aborted: false };
+
     async function init() {
       try {
         const engine = getEngine();
         const seed = Math.floor(Math.random() * 2 ** 32);
         await engine.init({ seed, difficulty, dealer: 0, scores: [0, 0] });
+
+        if (signal.aborted) return;
 
         // Create game record in Dexie
         const gameId = await db.games.add({
@@ -205,17 +220,26 @@ export default function PlayPage() {
           finalScore: [0, 0],
           analysis: [],
         });
+
+        if (signal.aborted) return;
+
         await startRecording(seed);
         recording.current.gameId = gameId ?? null;
 
         setEngineReady(true);
-        await processAiTurns();
+
+        if (signal.aborted) return;
+        await processAiTurns(signal);
       } catch (err) {
-        console.error('Engine init failed:', err);
-        setEngineError(err instanceof Error ? err.message : 'Failed to initialize engine');
+        if (!signal.aborted) {
+          console.error('Engine init failed:', err);
+          setEngineError(err instanceof Error ? err.message : 'Failed to initialize engine');
+        }
       }
     }
     init();
+
+    return () => { signal.aborted = true; };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const saveHand = useCallback(async (handPoints: number) => {
@@ -258,105 +282,139 @@ export default function PlayPage() {
   }, [game.tricksWon, game.decisions, game.totalWpc, game.totalEtd, game.scores]);
 
   const handlePlayCard = useCallback(async (card: CardData) => {
-    const engine = getEngine();
+    // Guard: prevent concurrent plays (double-click or stuck thinking)
+    if (busyRef.current) return;
+    busyRef.current = true;
     setThinking(true);
 
-    // Run PIMC evaluation before playing (100 determinizations for training)
-    const seed = Math.floor(Math.random() * 2 ** 32);
-    const pimcResult = await engine.evaluatePlays(100, seed);
+    try {
+      const engine = getEngine();
 
-    // Record and play human card
-    recordPlay(HUMAN_SEAT, card);
-    await engine.playCard(card);
+      // Run PIMC evaluation before playing (20 determinizations for interactive play)
+      const seed = Math.floor(Math.random() * 2 ** 32);
+      const pimcResult = await engine.evaluatePlays(20, seed);
 
-    // Analyze the decision
-    const analysis = await engine.analyzeDecision(pimcResult, card) as any;
-    const newDecision: Decision = {
-      played: analysis.played,
-      optimal: analysis.optimal,
-      wpc: analysis.wpc,
-      etd: analysis.etd,
-      grade: analysis.grade,
-    };
+      // Record and play human card
+      recordPlay(HUMAN_SEAT, card);
+      await engine.playCard(card);
 
-    dispatch({
-      type: 'SET_STATE',
-      payload: {
-        decisions: [...game.decisions, newDecision],
-        totalWpc: game.totalWpc + analysis.wpc,
-        totalEtd: game.totalEtd + analysis.etd,
-      },
-    });
+      // Analyze the decision
+      const analysis = await engine.analyzeDecision(pimcResult, card) as any;
+      const newDecision: Decision = {
+        played: analysis.played,
+        optimal: analysis.optimal,
+        wpc: analysis.wpc,
+        etd: analysis.etd,
+        grade: analysis.grade,
+      };
 
-    const { gamePhase } = await processAiTurns();
+      dispatch({
+        type: 'SET_STATE',
+        payload: {
+          decisions: [...game.decisions, newDecision],
+          totalWpc: game.totalWpc + analysis.wpc,
+          totalEtd: game.totalEtd + analysis.etd,
+        },
+      });
 
-    setThinking(false);
+      const { gamePhase } = await processAiTurns();
 
-    if (gamePhase === 'scoring') {
-      const result = await engine.scoreHand();
-      const handPoints = (result as any)[0];
-      await saveHand(handPoints);
-      const newHandsPlayed = game.handsPlayed + 1;
-      const updatedScores = await engine.scores() as [number, number];
+      if (gamePhase === 'scoring') {
+        const result = await engine.scoreHand();
+        const handPoints = (result as any)[0];
+        await saveHand(handPoints);
+        const newHandsPlayed = game.handsPlayed + 1;
+        const updatedScores = await engine.scores() as [number, number];
 
-      if (updatedScores[0] >= 10 || updatedScores[1] >= 10) {
-        dispatch({
-          type: 'SET_STATE',
-          payload: { phase: 'gameover', handPoints, handsPlayed: newHandsPlayed, scores: updatedScores },
-        });
-      } else {
-        dispatch({
-          type: 'SET_STATE',
-          payload: { phase: 'summary', handPoints, handsPlayed: newHandsPlayed },
-        });
+        if (updatedScores[0] >= 10 || updatedScores[1] >= 10) {
+          dispatch({
+            type: 'SET_STATE',
+            payload: { phase: 'gameover', handPoints, handsPlayed: newHandsPlayed, scores: updatedScores },
+          });
+        } else {
+          dispatch({
+            type: 'SET_STATE',
+            payload: { phase: 'summary', handPoints, handsPlayed: newHandsPlayed },
+          });
+        }
       }
+    } catch (err) {
+      console.error('Error during play:', err);
+    } finally {
+      setThinking(false);
+      busyRef.current = false;
     }
   }, [processAiTurns, setThinking, recordPlay, saveHand, game.decisions, game.totalWpc, game.totalEtd, game.handsPlayed]);
 
   const handleBid = useCallback(async (bidVal: number) => {
-    const engine = getEngine();
+    if (busyRef.current) return;
+    busyRef.current = true;
     setThinking(true);
 
-    recordBid(HUMAN_SEAT, bidVal);
-    await engine.applyBid(bidVal);
-    await processAiTurns();
-
-    setThinking(false);
+    try {
+      const engine = getEngine();
+      recordBid(HUMAN_SEAT, bidVal);
+      await engine.applyBid(bidVal);
+      await processAiTurns();
+    } catch (err) {
+      console.error('Error during bid:', err);
+    } finally {
+      setThinking(false);
+      busyRef.current = false;
+    }
   }, [processAiTurns, setThinking, recordBid]);
 
   const handleContinue = useCallback(async () => {
-    const engine = getEngine();
-    const seed = Math.floor(Math.random() * 2 ** 32);
-    const newDealer = (game.dealer + 1) % 4;
-    await engine.init({
-      seed,
-      difficulty,
-      dealer: newDealer,
-      scores: game.scores,
-    });
-    dispatch({ type: 'SET_STATE', payload: { decisions: [], totalWpc: 0, totalEtd: 0 } });
-    await startRecording(seed);
-    await processAiTurns();
+    if (busyRef.current) return;
+    busyRef.current = true;
+
+    try {
+      const engine = getEngine();
+      const seed = Math.floor(Math.random() * 2 ** 32);
+      const newDealer = (game.dealer + 1) % 4;
+      await engine.init({
+        seed,
+        difficulty,
+        dealer: newDealer,
+        scores: game.scores,
+      });
+      dispatch({ type: 'SET_STATE', payload: { decisions: [], totalWpc: 0, totalEtd: 0 } });
+      await startRecording(seed);
+      await processAiTurns();
+    } catch (err) {
+      console.error('Error during continue:', err);
+    } finally {
+      busyRef.current = false;
+    }
   }, [game.dealer, game.scores, difficulty, processAiTurns, startRecording]);
 
   const handleNewGame = useCallback(async () => {
-    const engine = getEngine();
-    const seed = Math.floor(Math.random() * 2 ** 32);
-    await engine.init({ seed, difficulty, dealer: 0, scores: [0, 0] });
+    if (busyRef.current) return;
+    busyRef.current = true;
 
-    const gameId = await db.games.add({
-      createdAt: new Date(),
-      seed,
-      difficulty,
-      hands: [],
-      finalScore: [0, 0],
-      analysis: [],
-    });
+    try {
+      const engine = getEngine();
+      const seed = Math.floor(Math.random() * 2 ** 32);
+      await engine.init({ seed, difficulty, dealer: 0, scores: [0, 0] });
 
-    dispatch({ type: 'RESET' });
-    await startRecording(seed);
-    recording.current.gameId = gameId ?? null;
-    await processAiTurns();
+      const gameId = await db.games.add({
+        createdAt: new Date(),
+        seed,
+        difficulty,
+        hands: [],
+        finalScore: [0, 0],
+        analysis: [],
+      });
+
+      dispatch({ type: 'RESET' });
+      await startRecording(seed);
+      recording.current.gameId = gameId ?? null;
+      await processAiTurns();
+    } catch (err) {
+      console.error('Error during new game:', err);
+    } finally {
+      busyRef.current = false;
+    }
   }, [difficulty, processAiTurns, startRecording]);
 
   if (engineError) {
