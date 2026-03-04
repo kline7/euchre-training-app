@@ -140,3 +140,176 @@ impl GameState {
         CardSet::FULL_DECK.difference(all_remaining)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::game::card::{Card, Rank, Suit};
+
+    fn make_card(suit: Suit, rank: Rank) -> Card {
+        Card::new(suit, rank)
+    }
+
+    fn hand_from(cards: &[(Suit, Rank)]) -> CardSet {
+        let mut set = CardSet::EMPTY;
+        for &(suit, rank) in cards {
+            set.insert(Card::new(suit, rank));
+        }
+        set
+    }
+
+    #[test]
+    fn team_of_assignments() {
+        assert_eq!(team_of(0), 0);
+        assert_eq!(team_of(1), 1);
+        assert_eq!(team_of(2), 0);
+        assert_eq!(team_of(3), 1);
+    }
+
+    #[test]
+    fn partner_of_assignments() {
+        assert_eq!(partner_of(0), 2);
+        assert_eq!(partner_of(1), 3);
+        assert_eq!(partner_of(2), 0);
+        assert_eq!(partner_of(3), 1);
+    }
+
+    #[test]
+    fn new_hand_defaults() {
+        let state = GameState::new_hand(
+            [CardSet::EMPTY; 4],
+            make_card(Suit::Hearts, Rank::Nine),
+            2, // Dealer is seat 2
+            [5, 3],
+        );
+        assert_eq!(state.phase, GamePhase::BiddingRound1);
+        assert_eq!(state.dealer, 2);
+        assert_eq!(state.lead_seat, 3); // Left of dealer
+        assert_eq!(state.trick_number, 1);
+        assert_eq!(state.tricks_won, [0, 0]);
+        assert_eq!(state.scores, [5, 3]);
+        assert!(!state.alone);
+        assert!(state.sitting_out.is_none());
+    }
+
+    #[test]
+    fn next_to_play_normal() {
+        let mut state = GameState::new_hand(
+            [CardSet::EMPTY; 4],
+            make_card(Suit::Hearts, Rank::Nine),
+            0,
+            [0, 0],
+        );
+        state.lead_seat = 1;
+        state.phase = GamePhase::Playing;
+
+        // No cards played — next is lead seat
+        assert_eq!(state.next_to_play(), 1);
+
+        // After 1 card played
+        state.current_trick.push(TrickCard { seat: 1, card: make_card(Suit::Hearts, Rank::Ace) });
+        assert_eq!(state.next_to_play(), 2);
+
+        // After 2 cards
+        state.current_trick.push(TrickCard { seat: 2, card: make_card(Suit::Hearts, Rank::King) });
+        assert_eq!(state.next_to_play(), 3);
+
+        // After 3 cards
+        state.current_trick.push(TrickCard { seat: 3, card: make_card(Suit::Hearts, Rank::Queen) });
+        assert_eq!(state.next_to_play(), 0);
+    }
+
+    #[test]
+    fn next_to_play_skips_sitting_out() {
+        let mut state = GameState::new_hand(
+            [CardSet::EMPTY; 4],
+            make_card(Suit::Hearts, Rank::Nine),
+            0,
+            [0, 0],
+        );
+        state.lead_seat = 0;
+        state.alone = true;
+        state.sitting_out = Some(2); // Seat 2 sits out
+        state.phase = GamePhase::Playing;
+
+        assert_eq!(state.next_to_play(), 0);
+
+        state.current_trick.push(TrickCard { seat: 0, card: make_card(Suit::Hearts, Rank::Ace) });
+        assert_eq!(state.next_to_play(), 1); // Seat 1
+
+        state.current_trick.push(TrickCard { seat: 1, card: make_card(Suit::Hearts, Rank::King) });
+        assert_eq!(state.next_to_play(), 3); // Skips seat 2, goes to 3
+    }
+
+    #[test]
+    fn trick_complete_normal_vs_alone() {
+        let mut state = GameState::new_hand(
+            [CardSet::EMPTY; 4],
+            make_card(Suit::Hearts, Rank::Nine),
+            0,
+            [0, 0],
+        );
+
+        // Normal mode: 4 players needed
+        assert!(!state.trick_complete());
+        state.current_trick.push(TrickCard { seat: 0, card: make_card(Suit::Hearts, Rank::Ace) });
+        state.current_trick.push(TrickCard { seat: 1, card: make_card(Suit::Hearts, Rank::King) });
+        state.current_trick.push(TrickCard { seat: 2, card: make_card(Suit::Hearts, Rank::Queen) });
+        assert!(!state.trick_complete());
+        state.current_trick.push(TrickCard { seat: 3, card: make_card(Suit::Hearts, Rank::Nine) });
+        assert!(state.trick_complete());
+
+        // Alone mode: 3 players
+        let mut alone_state = GameState::new_hand(
+            [CardSet::EMPTY; 4],
+            make_card(Suit::Hearts, Rank::Nine),
+            0,
+            [0, 0],
+        );
+        alone_state.alone = true;
+        alone_state.sitting_out = Some(2);
+        alone_state.current_trick.push(TrickCard { seat: 0, card: make_card(Suit::Hearts, Rank::Ace) });
+        alone_state.current_trick.push(TrickCard { seat: 1, card: make_card(Suit::Hearts, Rank::King) });
+        assert!(!alone_state.trick_complete());
+        alone_state.current_trick.push(TrickCard { seat: 3, card: make_card(Suit::Hearts, Rank::Nine) });
+        assert!(alone_state.trick_complete());
+    }
+
+    #[test]
+    fn led_suit_tracks_effective_suit() {
+        let mut state = GameState::new_hand(
+            [CardSet::EMPTY; 4],
+            make_card(Suit::Hearts, Rank::Nine),
+            0,
+            [0, 0],
+        );
+        state.trump = Suit::Hearts;
+
+        // No cards — no led suit
+        assert!(state.led_suit().is_none());
+
+        // Left Bower leads — led suit should be Hearts (trump), not Diamonds
+        let left_bower = make_card(Suit::Diamonds, Rank::Jack);
+        state.current_trick.push(TrickCard { seat: 0, card: left_bower });
+        assert_eq!(state.led_suit(), Some(Suit::Hearts));
+    }
+
+    #[test]
+    fn played_cards_tracks_removed_cards() {
+        let h0 = hand_from(&[(Suit::Hearts, Rank::Ace), (Suit::Clubs, Rank::Nine)]);
+        let h1 = hand_from(&[(Suit::Spades, Rank::King)]);
+        let state = GameState::new_hand(
+            [h0, h1, CardSet::EMPTY, CardSet::EMPTY],
+            make_card(Suit::Hearts, Rank::Nine),
+            0,
+            [0, 0],
+        );
+
+        let played = state.played_cards();
+        // 24 total - 3 in hands = 21 "played" (or rather, not in any hand)
+        assert_eq!(played.count(), 21);
+        assert!(!played.contains(make_card(Suit::Hearts, Rank::Ace)));
+        assert!(!played.contains(make_card(Suit::Clubs, Rank::Nine)));
+        assert!(!played.contains(make_card(Suit::Spades, Rank::King)));
+    }
+}

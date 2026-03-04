@@ -158,4 +158,82 @@ mod tests {
         assert_eq!(is_game_over([9, 9]), None);
         assert_eq!(is_game_over([12, 5]), Some(0)); // Over 10 is fine
     }
+
+    #[test]
+    fn four_tricks_is_still_1_point() {
+        let state = hand_with_tricks(0, 4, false);
+        let score = score_hand(&state);
+        assert_eq!(score.points, 1);
+        assert!(!score.is_sweep);
+    }
+
+    #[test]
+    fn alone_without_sweep_is_1_point() {
+        // Going alone but only winning 3-4 tricks = still 1 point
+        let state = hand_with_tricks(0, 3, true);
+        let score = score_hand(&state);
+        assert_eq!(score.points, 1);
+        assert!(!score.is_alone_sweep);
+    }
+
+    #[test]
+    fn alone_four_tricks_is_1_point() {
+        let state = hand_with_tricks(0, 4, true);
+        let score = score_hand(&state);
+        assert_eq!(score.points, 1);
+    }
+
+    #[test]
+    fn euchred_alone_still_2_points() {
+        // Going alone and getting euchred = defenders get 2 (same as normal euchre)
+        let state = hand_with_tricks(0, 2, true);
+        let score = score_hand(&state);
+        assert_eq!(score.points, -2);
+        assert!(score.is_euchre);
+    }
+
+    #[test]
+    fn maker_team_tracked_correctly() {
+        // Maker at seat 1 (team 1)
+        let state = hand_with_tricks(1, 5, false);
+        let score = score_hand(&state);
+        assert_eq!(score.maker_team, 1);
+        assert_eq!(score.maker_tricks, 5);
+        assert_eq!(score.points, 2); // Sweep
+    }
+
+    #[test]
+    fn apply_score_euchre_at_game_point() {
+        // Team 0 is at 9 points and gets euchred — team 1 hits 10
+        let scores = [9, 8];
+        let hand_score = HandScore {
+            maker_team: 0,
+            maker_tricks: 1,
+            defender_tricks: 4,
+            points: -2,
+            is_euchre: true,
+            is_sweep: false,
+            is_alone_sweep: false,
+        };
+        let new_scores = apply_score(scores, &hand_score);
+        assert_eq!(new_scores, [9, 10]); // Defenders win the game
+        assert_eq!(is_game_over(new_scores), Some(1));
+    }
+
+    #[test]
+    fn alone_sweep_can_win_game() {
+        let scores = [7, 5];
+        let hand_score = HandScore {
+            maker_team: 0,
+            maker_tricks: 5,
+            defender_tricks: 0,
+            points: 4,
+            is_euchre: false,
+            is_sweep: true,
+            is_alone_sweep: true,
+        };
+        let new_scores = apply_score(scores, &hand_score);
+        assert_eq!(new_scores, [11, 5]);
+        assert_eq!(is_game_over(new_scores), Some(0));
+    }
 }

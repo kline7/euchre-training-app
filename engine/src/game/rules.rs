@@ -251,4 +251,229 @@ mod tests {
         let legal = legal_plays(hand, &state);
         assert_eq!(legal, hand); // When leading, any card is legal
     }
+
+    // --- play_card state transition tests ---
+
+    #[test]
+    fn play_card_removes_from_hand() {
+        let mut hand = CardSet::EMPTY;
+        hand.insert(make_card(Hearts, Ace));
+        hand.insert(make_card(Clubs, Nine));
+
+        let mut state = GameState::new_hand(
+            [hand, CardSet::EMPTY, CardSet::EMPTY, CardSet::EMPTY],
+            make_card(Spades, Nine),
+            0,
+            [0, 0],
+        );
+        state.trump = Spades;
+        state.phase = GamePhase::Playing;
+        state.lead_seat = 0;
+
+        let new_state = play_card(&state, 0, make_card(Hearts, Ace));
+        assert!(!new_state.hands[0].contains(make_card(Hearts, Ace)));
+        assert!(new_state.hands[0].contains(make_card(Clubs, Nine)));
+    }
+
+    #[test]
+    fn play_card_tracks_void() {
+        let mut hand = CardSet::EMPTY;
+        hand.insert(make_card(Clubs, Ace)); // No hearts to follow
+
+        let mut state = GameState::new_hand(
+            [hand, CardSet::EMPTY, CardSet::EMPTY, CardSet::EMPTY],
+            make_card(Spades, Nine),
+            0,
+            [0, 0],
+        );
+        state.trump = Spades;
+        state.phase = GamePhase::Playing;
+        state.lead_seat = 1;
+        state.current_trick.push(TrickCard {
+            seat: 1,
+            card: make_card(Hearts, Nine),
+        });
+
+        let new_state = play_card(&state, 0, make_card(Clubs, Ace));
+        // Should record void in Hearts (suit 0)
+        assert!(new_state.known_voids[0].0 & (1 << (crate::game::card::Suit::Hearts as u32)) != 0);
+    }
+
+    #[test]
+    fn trick_completes_after_4_plays() {
+        let hands = [
+            CardSet::EMPTY,
+            CardSet::EMPTY,
+            CardSet::EMPTY,
+            CardSet::EMPTY,
+        ];
+        let mut state = GameState::new_hand(hands, make_card(Spades, Nine), 0, [0, 0]);
+        state.trump = Spades;
+        state.phase = GamePhase::Playing;
+        state.lead_seat = 0;
+        // Simulate 3 cards already played
+        state.current_trick.push(TrickCard { seat: 0, card: make_card(Hearts, Ace) });
+        state.current_trick.push(TrickCard { seat: 1, card: make_card(Hearts, King) });
+        state.current_trick.push(TrickCard { seat: 2, card: make_card(Hearts, Queen) });
+        // Give seat 3 a card to play
+        state.hands[3].insert(make_card(Hearts, Nine));
+
+        let new_state = play_card(&state, 3, make_card(Hearts, Nine));
+        // Trick should be cleared, winner is seat 0 (Ace of Hearts)
+        assert!(new_state.current_trick.is_empty());
+        assert_eq!(new_state.tricks_won[0], 1); // Team 0 wins (seat 0)
+        assert_eq!(new_state.lead_seat, 0); // Winner leads next
+        assert_eq!(new_state.trick_number, 2);
+    }
+
+    #[test]
+    fn hand_scoring_after_5_tricks() {
+        let hands = [CardSet::EMPTY; 4];
+        let mut state = GameState::new_hand(hands, make_card(Spades, Nine), 0, [0, 0]);
+        state.trump = Spades;
+        state.phase = GamePhase::Playing;
+        state.trick_number = 5; // Last trick
+        state.tricks_won = [3, 1]; // Team 0 has 3, team 1 has 1
+        state.lead_seat = 0;
+        // Set up the final trick — 3 cards played
+        state.current_trick.push(TrickCard { seat: 0, card: make_card(Hearts, Ace) });
+        state.current_trick.push(TrickCard { seat: 1, card: make_card(Hearts, King) });
+        state.current_trick.push(TrickCard { seat: 2, card: make_card(Hearts, Queen) });
+        state.hands[3].insert(make_card(Hearts, Nine));
+
+        let new_state = play_card(&state, 3, make_card(Hearts, Nine));
+        assert_eq!(new_state.phase, GamePhase::HandScoring);
+        assert_eq!(new_state.tricks_won[0], 4); // 3 + 1 from this trick
+    }
+
+    // --- Left Bower edge cases ---
+
+    #[test]
+    fn left_bower_must_follow_when_trump_led() {
+        // When trump is led and you only have the Left Bower as "trump", you must play it
+        let mut hand = CardSet::EMPTY;
+        let left_bower = make_card(Diamonds, Jack); // Left Bower when Hearts is trump
+        hand.insert(left_bower);
+        hand.insert(make_card(Clubs, Ace));
+        hand.insert(make_card(Spades, King));
+
+        let mut state = GameState::new_hand(
+            [hand, CardSet::EMPTY, CardSet::EMPTY, CardSet::EMPTY],
+            make_card(Hearts, Nine),
+            0,
+            [0, 0],
+        );
+        state.trump = Hearts;
+        state.current_trick.push(TrickCard {
+            seat: 1,
+            card: make_card(Hearts, Ace), // Trump led
+        });
+
+        let legal = legal_plays(hand, &state);
+        assert_eq!(legal.count(), 1);
+        assert!(legal.contains(left_bower));
+    }
+
+    #[test]
+    fn left_bower_not_required_when_native_suit_led() {
+        // When Diamonds is led and Hearts is trump, Jack of Diamonds is a Bower — NOT in Diamonds suit
+        let mut hand = CardSet::EMPTY;
+        let left_bower = make_card(Diamonds, Jack);
+        hand.insert(left_bower);
+        hand.insert(make_card(Diamonds, Ace));
+        hand.insert(make_card(Clubs, Nine));
+
+        let mut state = GameState::new_hand(
+            [hand, CardSet::EMPTY, CardSet::EMPTY, CardSet::EMPTY],
+            make_card(Hearts, Nine),
+            0,
+            [0, 0],
+        );
+        state.trump = Hearts;
+        state.current_trick.push(TrickCard {
+            seat: 1,
+            card: make_card(Diamonds, Nine), // Diamonds led
+        });
+
+        let legal = legal_plays(hand, &state);
+        // Only Ace of Diamonds follows — Left Bower is trump, not diamonds
+        assert!(legal.contains(make_card(Diamonds, Ace)));
+        assert!(!legal.contains(left_bower)); // Left Bower is trump, can't play to follow diamonds
+    }
+
+    // --- trick_winner edge cases ---
+
+    #[test]
+    fn trick_winner_led_suit_beats_other_offsuit() {
+        let trump = Spades;
+        let trick = vec![
+            TrickCard { seat: 0, card: make_card(Hearts, Ten) },  // Led hearts
+            TrickCard { seat: 1, card: make_card(Clubs, Ace) },    // Off-suit
+            TrickCard { seat: 2, card: make_card(Diamonds, Ace) }, // Off-suit
+            TrickCard { seat: 3, card: make_card(Hearts, Ace) },   // Followed hearts
+        ];
+        let winner = trick_winner(&trick, trump);
+        assert_eq!(winner.seat, 3); // Ace of Hearts beats Ten of Hearts
+    }
+
+    #[test]
+    fn trick_winner_low_trump_beats_high_offsuit() {
+        let trump = Hearts;
+        let trick = vec![
+            TrickCard { seat: 0, card: make_card(Clubs, Ace) },
+            TrickCard { seat: 1, card: make_card(Spades, Ace) },
+            TrickCard { seat: 2, card: make_card(Hearts, Nine) }, // Lowest trump
+            TrickCard { seat: 3, card: make_card(Diamonds, Ace) },
+        ];
+        let winner = trick_winner(&trick, trump);
+        assert_eq!(winner.seat, 2); // Nine of trump beats all off-suit aces
+    }
+
+    #[test]
+    fn trick_winner_left_bower_when_leading() {
+        let trump = Hearts;
+        let trick = vec![
+            TrickCard { seat: 0, card: make_card(Diamonds, Jack) }, // Left Bower leads
+            TrickCard { seat: 1, card: make_card(Hearts, Ace) },    // Ace of trump
+            TrickCard { seat: 2, card: make_card(Hearts, King) },
+        ];
+        let winner = trick_winner(&trick, trump);
+        // Left Bower > Ace of trump
+        assert_eq!(winner.seat, 0);
+    }
+
+    #[test]
+    fn trick_winner_all_same_suit_highest_wins() {
+        let trump = Spades;
+        let trick = vec![
+            TrickCard { seat: 0, card: make_card(Hearts, Nine) },
+            TrickCard { seat: 1, card: make_card(Hearts, Queen) },
+            TrickCard { seat: 2, card: make_card(Hearts, King) },
+            TrickCard { seat: 3, card: make_card(Hearts, Ten) },
+        ];
+        let winner = trick_winner(&trick, trump);
+        assert_eq!(winner.seat, 2); // King highest
+    }
+
+    // --- alone mode trick completion ---
+
+    #[test]
+    fn trick_completes_with_3_in_alone_mode() {
+        let hands = [CardSet::EMPTY; 4];
+        let mut state = GameState::new_hand(hands, make_card(Hearts, Nine), 0, [0, 0]);
+        state.trump = Hearts;
+        state.maker = 0;
+        state.alone = true;
+        state.sitting_out = Some(2); // Partner sits out
+        state.phase = GamePhase::Playing;
+        state.lead_seat = 0;
+        state.current_trick.push(TrickCard { seat: 0, card: make_card(Hearts, Ace) });
+        state.current_trick.push(TrickCard { seat: 1, card: make_card(Hearts, King) });
+        state.hands[3].insert(make_card(Hearts, Nine));
+
+        let new_state = play_card(&state, 3, make_card(Hearts, Nine));
+        // 3 players = trick complete
+        assert!(new_state.current_trick.is_empty());
+        assert_eq!(new_state.tricks_won[0], 1);
+    }
 }

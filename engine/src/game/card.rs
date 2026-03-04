@@ -343,4 +343,92 @@ mod tests {
         }
         assert_eq!(set, CardSet::FULL_DECK);
     }
+
+    #[test]
+    fn non_bower_jack_trick_power() {
+        // Jack of Clubs when Hearts is trump — not a bower, regular jack power
+        let jc = Card::new(Suit::Clubs, Rank::Jack);
+        assert_eq!(jc.trick_power(Suit::Hearts), 5); // Regular jack
+    }
+
+    #[test]
+    fn all_four_bower_combos() {
+        // Test all 4 trump suits for bower assignments
+        for trump in Suit::ALL {
+            let right = Card::new(trump, Rank::Jack);
+            let left = Card::new(trump.same_color(), Rank::Jack);
+            assert_eq!(right.effective_suit(trump), trump);
+            assert_eq!(left.effective_suit(trump), trump);
+            assert!(right.trick_power(trump) > left.trick_power(trump));
+            assert!(left.trick_power(trump) > Card::new(trump, Rank::Ace).trick_power(trump));
+        }
+    }
+
+    #[test]
+    fn effective_suit_mask_all_trumps() {
+        // For each trump suit, verify mask includes right bower, left bower,
+        // and all other cards of that suit
+        for trump in Suit::ALL {
+            let mask = CardSet::effective_suit_mask(trump, trump);
+            // Should contain 7 cards: 6 natural + left bower
+            assert_eq!(mask.count(), 7);
+            // Right bower
+            assert!(mask.contains(Card::new(trump, Rank::Jack)));
+            // Left bower
+            assert!(mask.contains(Card::new(trump.same_color(), Rank::Jack)));
+            // All other cards of trump suit
+            for rank in Rank::ALL {
+                assert!(mask.contains(Card::new(trump, rank)));
+            }
+        }
+    }
+
+    #[test]
+    fn effective_suit_mask_same_color_suit_has_5_cards() {
+        // The same-color suit loses its Jack (becomes Left Bower)
+        let trump = Suit::Hearts;
+        let diamond_mask = CardSet::effective_suit_mask(Suit::Diamonds, trump);
+        assert_eq!(diamond_mask.count(), 5); // 6 - Jack = 5
+        assert!(!diamond_mask.contains(Card::new(Suit::Diamonds, Rank::Jack)));
+    }
+
+    #[test]
+    fn effective_suit_mask_offsuit_unchanged() {
+        // Suits not related to trump are unchanged (6 cards each)
+        let trump = Suit::Hearts;
+        let club_mask = CardSet::effective_suit_mask(Suit::Clubs, trump);
+        assert_eq!(club_mask.count(), 6);
+        let spade_mask = CardSet::effective_suit_mask(Suit::Spades, trump);
+        assert_eq!(spade_mask.count(), 6);
+    }
+
+    #[test]
+    fn cardset_set_operations() {
+        let mut a = CardSet::EMPTY;
+        a.insert(Card::new(Suit::Hearts, Rank::Ace));
+        a.insert(Card::new(Suit::Clubs, Rank::Nine));
+
+        let mut b = CardSet::EMPTY;
+        b.insert(Card::new(Suit::Hearts, Rank::Ace));
+        b.insert(Card::new(Suit::Spades, Rank::King));
+
+        let union = a.union(b);
+        assert_eq!(union.count(), 3);
+
+        let intersection = a.intersection(b);
+        assert_eq!(intersection.count(), 1);
+        assert!(intersection.contains(Card::new(Suit::Hearts, Rank::Ace)));
+
+        let diff = a.difference(b);
+        assert_eq!(diff.count(), 1);
+        assert!(diff.contains(Card::new(Suit::Clubs, Rank::Nine)));
+    }
+
+    #[test]
+    fn card_display_formatting() {
+        let card = Card::new(Suit::Hearts, Rank::Ace);
+        assert_eq!(format!("{}", card), "A♥");
+        let card2 = Card::new(Suit::Spades, Rank::Ten);
+        assert_eq!(format!("{}", card2), "10♠");
+    }
 }
