@@ -10,6 +10,11 @@ export default defineConfig({
       '@engine': path.resolve(__dirname, '../engine/pkg'),
     },
   },
+  server: {
+    fs: {
+      allow: ['..'],
+    },
+  },
   worker: {
     format: 'es',
     plugins: () => [wasm()],

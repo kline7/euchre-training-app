@@ -1,3 +1,4 @@
+import { useState, useEffect, useCallback } from 'react';
 import { type CardData } from './cards/Card';
 import CardComponent from './cards/Card';
 import { AnimatePresence, motion } from 'motion/react';
@@ -54,6 +55,40 @@ export default function GameTable({
   onPlayCard,
   thinking,
 }: GameTableProps) {
+  const [selectedIdx, setSelectedIdx] = useState(0);
+  const humanHand = hands[humanSeat] || [];
+  const playableIndices = humanHand
+    .map((card, i) => isCardPlayable(card, legalPlays) ? i : -1)
+    .filter((i) => i >= 0);
+
+  // Reset selection when legal plays change
+  useEffect(() => {
+    setSelectedIdx(0);
+  }, [legalPlays.length]);
+
+  const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    if (playableIndices.length === 0) return;
+
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+      e.preventDefault();
+      setSelectedIdx((prev) => {
+        if (e.key === 'ArrowLeft') return prev > 0 ? prev - 1 : playableIndices.length - 1;
+        return prev < playableIndices.length - 1 ? prev + 1 : 0;
+      });
+    } else if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      const cardIdx = playableIndices[selectedIdx];
+      if (cardIdx !== undefined && humanHand[cardIdx]) {
+        onPlayCard(humanHand[cardIdx]);
+      }
+    }
+  }, [playableIndices, selectedIdx, humanHand, onPlayCard]);
+
+  useEffect(() => {
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleKeyDown]);
+
   return (
     <div className="game-table">
       {/* Score display */}
@@ -122,6 +157,7 @@ export default function GameTable({
                     card={card}
                     faceUp={isHuman}
                     playable={isHuman && isCardPlayable(card, legalPlays)}
+                    selected={isHuman && playableIndices[selectedIdx] === i}
                     onClick={() => onPlayCard(card)}
                     size={pos === 'bottom' ? 'md' : 'sm'}
                   />

@@ -15,6 +15,8 @@ const api = {
     if (!Engine) {
       // Dynamic import of WASM module (built by wasm-bindgen CLI)
       const wasm = await import('@engine/euchre_engine');
+      // Initialize the WASM runtime before using any exports
+      await wasm.default();
       Engine = wasm.Engine;
     }
     engine = new Engine(config);
