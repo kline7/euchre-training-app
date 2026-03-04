@@ -1,0 +1,205 @@
+.review-page {
+  max-width: 600px;
+  margin: 0 auto;
+}
+
+.review-header h2 {
+  margin-bottom: 4px;
+}
+
+.review-score {
+  font-size: 0.8rem;
+  color: #aaa;
+  margin-bottom: 12px;
+}
+
+.review-wpc {
+  color: #e74c3c;
+}
+
+/* Mini table */
+.review-table {
+  background: radial-gradient(ellipse at center, #1b5e20, #0d3311);
+  border-radius: 12px;
+  border: 3px solid #2e7d32;
+  padding: 16px;
+  min-height: 200px;
+  position: relative;
+  margin-bottom: 12px;
+}
+
+.review-hands {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.review-hand-label {
+  font-size: 0.7rem;
+  color: rgba(255,255,255,0.6);
+  margin-bottom: 4px;
+}
+
+.review-hand-cards {
+  display: flex;
+  gap: 2px;
+}
+
+.review-trick {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255,255,255,0.15);
+}
+
+.review-trick-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.review-trick-seat {
+  font-size: 0.6rem;
+  color: rgba(255,255,255,0.5);
+}
+
+/* Decision panel */
+.decision-panel {
+  background: rgba(0,0,0,0.5);
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-bottom: 12px;
+}
+
+.decision-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+  font-size: 0.85rem;
+}
+
+.decision-grade {
+  color: #fff;
+  padding: 1px 8px;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.decision-stats {
+  display: flex;
+  gap: 16px;
+  font-size: 0.75rem;
+  color: #aaa;
+}
+
+/* Navigation */
+.review-nav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.review-nav button {
+  background: #333;
+  color: #e0e0e0;
+  border: 1px solid #555;
+  border-radius: 4px;
+  padding: 4px 10px;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.review-nav button:hover {
+  background: #444;
+}
+
+.review-nav-pos {
+  font-size: 0.8rem;
+  color: #aaa;
+  min-width: 120px;
+  text-align: center;
+}
+
+/* Hand selector */
+.review-hand-selector {
+  display: flex;
+  gap: 4px;
+  justify-content: center;
+  margin-bottom: 16px;
+}
+
+.review-hand-selector button {
+  background: #2a2a3e;
+  color: #aaa;
+  border: 1px solid #444;
+  border-radius: 4px;
+  padding: 3px 8px;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.review-hand-selector button.active {
+  background: #2e86c1;
+  color: #fff;
+  border-color: #2e86c1;
+}
+
+/* Decisions list */
+.review-decisions-list {
+  background: rgba(0,0,0,0.3);
+  border-radius: 8px;
+  padding: 10px 14px;
+}
+
+.review-decisions-list h3 {
+  margin: 0 0 8px;
+  font-size: 0.85rem;
+}
+
+.review-decision-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+
+.review-decision-row:hover {
+  background: rgba(255,255,255,0.05);
+}
+
+.review-decision-row.active {
+  background: rgba(46, 134, 193, 0.2);
+  border: 1px solid #2e86c1;
+}
+
+.review-grade-badge {
+  color: #fff;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  min-width: 55px;
+  text-align: center;
+}
+
+.review-optimal {
+  color: #27ae60;
+}
+
+.review-wpc-val {
+  margin-left: auto;
+  color: #aaa;
+  font-size: 0.75rem;
+}

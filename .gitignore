@@ -1,0 +1,21 @@
+# Rust
+engine/target/
+engine/pkg/
+
+# Node
+web/node_modules/
+web/dist/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env
+.env
+.env.local
