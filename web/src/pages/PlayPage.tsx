@@ -83,6 +83,30 @@ export default function PlayPage() {
 
   const [game, dispatch] = useReducer(gameReducer, initialState);
 
+  // Process AI turns (bidding or playing) until it's the human's turn
+  const processAiTurns = useCallback(async () => {
+    const engine = getEngine();
+    let { gamePhase, nextSeat } = await syncState();
+
+    // AI bidding loop
+    while ((gamePhase === 'bidding1' || gamePhase === 'bidding2') && nextSeat !== HUMAN_SEAT) {
+      await new Promise((r) => setTimeout(r, 400));
+      const aiBid = await engine.getAiBid();
+      await engine.applyBid(aiBid);
+      ({ gamePhase, nextSeat } = await syncState());
+    }
+
+    // AI playing loop (if AI leads after bidding resolves)
+    while (gamePhase === 'playing' && nextSeat !== HUMAN_SEAT) {
+      await new Promise((r) => setTimeout(r, 300));
+      const aiCard = await engine.getAiPlay();
+      await engine.playCard(aiCard);
+      ({ gamePhase, nextSeat } = await syncState());
+    }
+
+    return { gamePhase, nextSeat };
+  }, [syncState]);
+
   // Initialize engine on mount
   useEffect(() => {
     async function init() {
@@ -91,7 +115,7 @@ export default function PlayPage() {
         const seed = Math.floor(Math.random() * 2 ** 32);
         await engine.init({ seed, difficulty, dealer: 0, scores: [0, 0] });
         setEngineReady(true);
-        await syncState();
+        await processAiTurns();
       } catch (err) {
         console.error('Engine init failed:', err);
       }
@@ -149,17 +173,8 @@ export default function PlayPage() {
     const engine = getEngine();
     setThinking(true);
 
-    // Human plays
     await engine.playCard(card);
-    let { gamePhase, nextSeat } = await syncState();
-
-    // Let AI players take their turns
-    while (gamePhase === 'playing' && nextSeat !== HUMAN_SEAT) {
-      await new Promise((r) => setTimeout(r, 300)); // Brief pause for animation
-      const aiCard = await engine.getAiPlay();
-      await engine.playCard(aiCard);
-      ({ gamePhase, nextSeat } = await syncState());
-    }
+    const { gamePhase } = await processAiTurns();
 
     setThinking(false);
 
@@ -170,38 +185,19 @@ export default function PlayPage() {
         payload: { phase: 'summary', handPoints: (result as any)[0] },
       });
     }
-  }, [syncState, setThinking]);
+  }, [processAiTurns, setThinking]);
 
   const handleBid = useCallback(async (bidVal: number) => {
     const engine = getEngine();
     setThinking(true);
 
     await engine.applyBid(bidVal);
-    let { gamePhase, nextSeat } = await syncState();
-
-    // Let AI players bid
-    while ((gamePhase === 'bidding1' || gamePhase === 'bidding2') && nextSeat !== HUMAN_SEAT) {
-      await new Promise((r) => setTimeout(r, 400));
-      const aiBid = await engine.getAiBid();
-      await engine.applyBid(aiBid);
-      ({ gamePhase, nextSeat } = await syncState());
-    }
-
-    // If bidding resolved to playing, AI may need to lead
-    if (gamePhase === 'playing' && nextSeat !== HUMAN_SEAT) {
-      while (gamePhase === 'playing' && nextSeat !== HUMAN_SEAT) {
-        await new Promise((r) => setTimeout(r, 300));
-        const aiCard = await engine.getAiPlay();
-        await engine.playCard(aiCard);
-        ({ gamePhase, nextSeat } = await syncState());
-      }
-    }
+    await processAiTurns();
 
     setThinking(false);
-  }, [syncState, setThinking]);
+  }, [processAiTurns, setThinking]);
 
   const handleContinue = useCallback(async () => {
-    // Start a new hand
     const engine = getEngine();
     const seed = Math.floor(Math.random() * 2 ** 32);
     const newDealer = (game.dealer + 1) % 4;
@@ -212,8 +208,8 @@ export default function PlayPage() {
       scores: game.scores,
     });
     dispatch({ type: 'SET_STATE', payload: { decisions: [], totalWpc: 0, totalEtd: 0 } });
-    await syncState();
-  }, [game.dealer, game.scores, difficulty, syncState]);
+    await processAiTurns();
+  }, [game.dealer, game.scores, difficulty, processAiTurns]);
 
   if (!engineReady) {
     return (
