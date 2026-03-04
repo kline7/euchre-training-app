@@ -111,6 +111,53 @@ export default function PlayPage() {
     recording.current.plays.push({ seat, card: { suit: card.suit, rank: card.rank } });
   }, []);
 
+  // syncState must be defined before processAiTurns
+  const syncState = useCallback(async () => {
+    const engine = getEngine();
+    const phase = await engine.phase();
+    const hands: CardData[][] = [];
+    for (let i = 0; i < 4; i++) {
+      hands.push(await engine.getHand(i));
+    }
+    const legalPlays = phase === 4 ? await engine.getLegalPlays() : [];
+    const nextSeat = await engine.nextToPlay();
+    const trumpSuit = await engine.trump();
+    const dealer = await engine.dealer();
+    const tricksWon = await engine.tricksWon() as [number, number];
+    const scores = await engine.scores() as [number, number];
+    const trickNumber = await engine.trickNumber();
+    const currentTrick = await engine.currentTrick() as TrickCard[];
+    const upcard = await engine.upcard() as CardData;
+
+    let gamePhase: GamePhase;
+    switch (phase) {
+      case 1: gamePhase = 'bidding1'; break;
+      case 2: gamePhase = 'bidding2'; break;
+      case 4: gamePhase = 'playing'; break;
+      case 5: gamePhase = 'scoring'; break;
+      default: gamePhase = 'playing';
+    }
+
+    dispatch({
+      type: 'SET_STATE',
+      payload: {
+        phase: gamePhase,
+        hands,
+        legalPlays,
+        nextSeat,
+        trumpSuit,
+        dealer,
+        tricksWon,
+        scores,
+        trickNumber,
+        currentTrick,
+        upcardSuit: upcard.suit,
+      },
+    });
+
+    return { gamePhase, nextSeat };
+  }, []);
+
   // Process AI turns (bidding or playing) until it's the human's turn
   const processAiTurns = useCallback(async () => {
     const engine = getEngine();
@@ -165,52 +212,6 @@ export default function PlayPage() {
     }
     init();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const syncState = useCallback(async () => {
-    const engine = getEngine();
-    const phase = await engine.phase();
-    const hands: CardData[][] = [];
-    for (let i = 0; i < 4; i++) {
-      hands.push(await engine.getHand(i));
-    }
-    const legalPlays = phase === 4 ? await engine.getLegalPlays() : [];
-    const nextSeat = await engine.nextToPlay();
-    const trumpSuit = await engine.trump();
-    const dealer = await engine.dealer();
-    const tricksWon = await engine.tricksWon() as [number, number];
-    const scores = await engine.scores() as [number, number];
-    const trickNumber = await engine.trickNumber();
-    const currentTrick = await engine.currentTrick() as TrickCard[];
-    const upcard = await engine.upcard() as CardData;
-
-    let gamePhase: GamePhase;
-    switch (phase) {
-      case 1: gamePhase = 'bidding1'; break;
-      case 2: gamePhase = 'bidding2'; break;
-      case 4: gamePhase = 'playing'; break;
-      case 5: gamePhase = 'scoring'; break;
-      default: gamePhase = 'playing';
-    }
-
-    dispatch({
-      type: 'SET_STATE',
-      payload: {
-        phase: gamePhase,
-        hands,
-        legalPlays,
-        nextSeat,
-        trumpSuit,
-        dealer,
-        tricksWon,
-        scores,
-        trickNumber,
-        currentTrick,
-        upcardSuit: upcard.suit,
-      },
-    });
-
-    return { gamePhase, nextSeat };
-  }, []);
 
   const saveHand = useCallback(async (handPoints: number) => {
     const rec = recording.current;
