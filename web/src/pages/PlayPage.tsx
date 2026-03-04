@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useReducer } from 'react';
+import { useCallback, useEffect, useReducer, useRef } from 'react';
 import { useUI, useSettings } from '../stores/store';
 import { getEngine } from '../engine/bridge';
+import { db } from '../db/schema';
+import type { HandRecord, BidRecord, DecisionRecord, HandAnalysisRecord } from '../db/schema';
 import GameTable from '../components/GameTable';
 import BiddingPanel from '../components/BiddingPanel';
 import HandSummary from '../components/HandSummary';
@@ -83,6 +85,32 @@ export default function PlayPage() {
 
   const [game, dispatch] = useReducer(gameReducer, initialState);
 
+  // Game recording (mutable ref — doesn't trigger re-renders)
+  const recording = useRef<{
+    gameId: number | null;
+    seed: number;
+    deal: CardData[][];
+    bids: BidRecord[];
+    plays: PlayRecord[];
+  }>({ gameId: null, seed: 0, deal: [], bids: [], plays: [] });
+
+  const startRecording = useCallback(async (seed: number) => {
+    const engine = getEngine();
+    const deal: CardData[][] = [];
+    for (let i = 0; i < 4; i++) {
+      deal.push(await engine.getHand(i));
+    }
+    recording.current = { gameId: recording.current.gameId, seed, deal, bids: [], plays: [] };
+  }, []);
+
+  const recordBid = useCallback((seat: number, action: number) => {
+    recording.current.bids.push({ seat, action });
+  }, []);
+
+  const recordPlay = useCallback((seat: number, card: CardData) => {
+    recording.current.plays.push({ seat, card: { suit: card.suit, rank: card.rank } });
+  }, []);
+
   // Process AI turns (bidding or playing) until it's the human's turn
   const processAiTurns = useCallback(async () => {
     const engine = getEngine();
@@ -92,6 +120,7 @@ export default function PlayPage() {
     while ((gamePhase === 'bidding1' || gamePhase === 'bidding2') && nextSeat !== HUMAN_SEAT) {
       await new Promise((r) => setTimeout(r, 400));
       const aiBid = await engine.getAiBid();
+      recordBid(nextSeat, aiBid);
       await engine.applyBid(aiBid);
       ({ gamePhase, nextSeat } = await syncState());
     }
@@ -99,13 +128,14 @@ export default function PlayPage() {
     // AI playing loop (if AI leads after bidding resolves)
     while (gamePhase === 'playing' && nextSeat !== HUMAN_SEAT) {
       await new Promise((r) => setTimeout(r, 300));
-      const aiCard = await engine.getAiPlay();
+      const aiCard = await engine.getAiPlay() as CardData;
+      recordPlay(nextSeat, aiCard);
       await engine.playCard(aiCard);
       ({ gamePhase, nextSeat } = await syncState());
     }
 
     return { gamePhase, nextSeat };
-  }, [syncState]);
+  }, [syncState, recordBid, recordPlay]);
 
   // Initialize engine on mount
   useEffect(() => {
@@ -114,6 +144,19 @@ export default function PlayPage() {
         const engine = getEngine();
         const seed = Math.floor(Math.random() * 2 ** 32);
         await engine.init({ seed, difficulty, dealer: 0, scores: [0, 0] });
+
+        // Create game record in Dexie
+        const gameId = await db.games.add({
+          createdAt: new Date(),
+          seed,
+          difficulty,
+          hands: [],
+          finalScore: [0, 0],
+          analysis: [],
+        });
+        await startRecording(seed);
+        recording.current.gameId = gameId;
+
         setEngineReady(true);
         await processAiTurns();
       } catch (err) {
@@ -169,33 +212,101 @@ export default function PlayPage() {
     return { gamePhase, nextSeat };
   }, []);
 
+  const saveHand = useCallback(async (handPoints: number) => {
+    const rec = recording.current;
+    if (!rec.gameId) return;
+
+    const handRecord: HandRecord = {
+      deal: rec.deal,
+      bids: rec.bids,
+      plays: rec.plays,
+      result: {
+        tricks: game.tricksWon,
+        points: handPoints,
+        isEuchre: handPoints < 0,
+        isSweep: game.tricksWon[0] === 5 || game.tricksWon[1] === 5,
+      },
+    };
+
+    const analysisRecord: HandAnalysisRecord = {
+      decisions: game.decisions.map((d, i): DecisionRecord => ({
+        trickNumber: i + 1,
+        played: { suit: d.played.suit, rank: d.played.rank },
+        optimal: { suit: d.optimal.suit, rank: d.optimal.rank },
+        wpc: d.wpc,
+        etd: d.etd,
+        grade: d.grade,
+      })),
+      totalWpc: game.totalWpc,
+      totalEtd: game.totalEtd,
+    };
+
+    const existing = await db.games.get(rec.gameId);
+    if (existing) {
+      await db.games.update(rec.gameId, {
+        hands: [...existing.hands, handRecord],
+        analysis: [...(existing.analysis || []), analysisRecord],
+        finalScore: game.scores,
+      });
+    }
+  }, [game.tricksWon, game.decisions, game.totalWpc, game.totalEtd, game.scores]);
+
   const handlePlayCard = useCallback(async (card: CardData) => {
     const engine = getEngine();
     setThinking(true);
 
+    // Run PIMC evaluation before playing (100 determinizations for training)
+    const seed = Math.floor(Math.random() * 2 ** 32);
+    const pimcResult = await engine.evaluatePlays(100, seed);
+
+    // Record and play human card
+    recordPlay(HUMAN_SEAT, card);
     await engine.playCard(card);
+
+    // Analyze the decision
+    const analysis = await engine.analyzeDecision(pimcResult, card) as any;
+    const newDecision: Decision = {
+      played: analysis.played,
+      optimal: analysis.optimal,
+      wpc: analysis.wpc,
+      etd: analysis.etd,
+      grade: analysis.grade,
+    };
+
+    dispatch({
+      type: 'SET_STATE',
+      payload: {
+        decisions: [...game.decisions, newDecision],
+        totalWpc: game.totalWpc + analysis.wpc,
+        totalEtd: game.totalEtd + analysis.etd,
+      },
+    });
+
     const { gamePhase } = await processAiTurns();
 
     setThinking(false);
 
     if (gamePhase === 'scoring') {
       const result = await engine.scoreHand();
+      const handPoints = (result as any)[0];
+      await saveHand(handPoints);
       dispatch({
         type: 'SET_STATE',
-        payload: { phase: 'summary', handPoints: (result as any)[0] },
+        payload: { phase: 'summary', handPoints },
       });
     }
-  }, [processAiTurns, setThinking]);
+  }, [processAiTurns, setThinking, recordPlay, saveHand, game.decisions, game.totalWpc, game.totalEtd]);
 
   const handleBid = useCallback(async (bidVal: number) => {
     const engine = getEngine();
     setThinking(true);
 
+    recordBid(HUMAN_SEAT, bidVal);
     await engine.applyBid(bidVal);
     await processAiTurns();
 
     setThinking(false);
-  }, [processAiTurns, setThinking]);
+  }, [processAiTurns, setThinking, recordBid]);
 
   const handleContinue = useCallback(async () => {
     const engine = getEngine();
@@ -208,8 +319,9 @@ export default function PlayPage() {
       scores: game.scores,
     });
     dispatch({ type: 'SET_STATE', payload: { decisions: [], totalWpc: 0, totalEtd: 0 } });
+    await startRecording(seed);
     await processAiTurns();
-  }, [game.dealer, game.scores, difficulty, processAiTurns]);
+  }, [game.dealer, game.scores, difficulty, processAiTurns, startRecording]);
 
   if (!engineReady) {
     return (
