@@ -8,9 +8,15 @@ pub fn legal_plays(hand: CardSet, state: &GameState) -> CardSet {
         return CardSet::EMPTY;
     }
 
-    // If leading or first to play, any card is legal
+    // If leading: cannot lead trump unless hand contains only trump
     if state.current_trick.is_empty() {
-        return hand;
+        let trump_mask = CardSet::effective_suit_mask(state.trump, state.trump);
+        let non_trump = hand.difference(trump_mask);
+        if non_trump.is_empty() {
+            // Only trump in hand — must lead trump
+            return hand;
+        }
+        return non_trump;
     }
 
     // Must follow the led suit (effective suit)
@@ -95,11 +101,12 @@ pub fn play_card(state: &GameState, seat: Seat, card: Card) -> GameState {
         new_state.tricks_won[winning_team as usize] += 1;
         new_state.lead_seat = winner.seat;
         new_state.current_trick.clear();
-        new_state.trick_number += 1;
 
         // Check if hand is over (all 5 tricks played)
-        if new_state.trick_number > 5 {
+        if new_state.trick_number >= 5 {
             new_state.phase = GamePhase::HandScoring;
+        } else {
+            new_state.trick_number += 1;
         }
     }
 
@@ -236,20 +243,86 @@ mod tests {
     }
 
     #[test]
-    fn leading_any_card_legal() {
+    fn leading_non_trump_only() {
+        // Hand has non-trump cards — only those are legal leads
         let mut hand = CardSet::EMPTY;
         hand.insert(make_card(Hearts, Ace));
         hand.insert(make_card(Clubs, Nine));
 
-        let state = GameState::new_hand(
+        let mut state = GameState::new_hand(
             [hand, CardSet::EMPTY, CardSet::EMPTY, CardSet::EMPTY],
             make_card(Spades, Nine),
             0,
             [0, 0],
         );
+        state.trump = Spades;
 
         let legal = legal_plays(hand, &state);
-        assert_eq!(legal, hand); // When leading, any card is legal
+        // Neither card is Spades, so both are legal non-trump leads
+        assert_eq!(legal, hand);
+    }
+
+    #[test]
+    fn leading_cannot_play_trump_when_non_trump_available() {
+        // Hand has mix of trump and non-trump — only non-trump legal
+        let mut hand = CardSet::EMPTY;
+        hand.insert(make_card(Hearts, Ace));  // trump
+        hand.insert(make_card(Hearts, King)); // trump
+        hand.insert(make_card(Clubs, Nine));  // non-trump
+
+        let mut state = GameState::new_hand(
+            [hand, CardSet::EMPTY, CardSet::EMPTY, CardSet::EMPTY],
+            make_card(Hearts, Nine),
+            0,
+            [0, 0],
+        );
+        state.trump = Hearts;
+
+        let legal = legal_plays(hand, &state);
+        assert_eq!(legal.count(), 1);
+        assert!(legal.contains(make_card(Clubs, Nine)));
+        assert!(!legal.contains(make_card(Hearts, Ace)));
+        assert!(!legal.contains(make_card(Hearts, King)));
+    }
+
+    #[test]
+    fn leading_only_trump_in_hand_allows_trump() {
+        // Hand has only trump cards — must lead trump
+        let mut hand = CardSet::EMPTY;
+        hand.insert(make_card(Hearts, Ace));
+        hand.insert(make_card(Hearts, King));
+
+        let mut state = GameState::new_hand(
+            [hand, CardSet::EMPTY, CardSet::EMPTY, CardSet::EMPTY],
+            make_card(Hearts, Nine),
+            0,
+            [0, 0],
+        );
+        state.trump = Hearts;
+
+        let legal = legal_plays(hand, &state);
+        assert_eq!(legal, hand); // Only trump — all legal
+    }
+
+    #[test]
+    fn leading_left_bower_counts_as_trump() {
+        // Left Bower (Jack of same-color suit) is trump — cannot lead it
+        let mut hand = CardSet::EMPTY;
+        hand.insert(make_card(Diamonds, Jack)); // Left Bower when Hearts is trump
+        hand.insert(make_card(Clubs, Ace));      // non-trump
+
+        let mut state = GameState::new_hand(
+            [hand, CardSet::EMPTY, CardSet::EMPTY, CardSet::EMPTY],
+            make_card(Hearts, Nine),
+            0,
+            [0, 0],
+        );
+        state.trump = Hearts;
+
+        let legal = legal_plays(hand, &state);
+        assert_eq!(legal.count(), 1);
+        assert!(legal.contains(make_card(Clubs, Ace)));
+        assert!(!legal.contains(make_card(Diamonds, Jack))); // Left Bower is trump
     }
 
     // --- play_card state transition tests ---

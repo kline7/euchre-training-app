@@ -5,6 +5,15 @@ use crate::game::card::{Card, CardSet, Suit, Rank};
 use crate::game::rules::legal_plays;
 use crate::game::state::{GameState, GamePhase, Seat, team_of, BidAction};
 
+/// Check if a hand is strong enough to go alone: 4+ trump AND 1+ off-ace.
+fn should_go_alone(hand: CardSet, trump: Suit) -> bool {
+    let trump_count = count_trump(hand, trump);
+    let off_aces = hand.iter()
+        .filter(|c| c.effective_suit(trump) != trump && c.rank == Rank::Ace)
+        .count();
+    trump_count >= 4 && off_aces >= 1
+}
+
 /// AI difficulty tiers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Difficulty {
@@ -49,37 +58,36 @@ pub fn choose_bid_for(state: &GameState, difficulty: Difficulty, _rng: &mut ChaC
             let has_right = has_bower(hand, trump_if_ordered, true);
             let has_left = has_bower(hand, trump_if_ordered, false);
 
-            match difficulty {
+            let wants_order_up = match difficulty {
                 Difficulty::Novice => {
-                    if trump_count >= 3 { BidAction::OrderUp } else { BidAction::Pass }
+                    trump_count >= 3
                 }
                 Difficulty::Intermediate => {
-                    if trump_count >= 2 && (has_right || has_left) {
-                        BidAction::OrderUp
-                    } else if trump_count >= 3 {
-                        BidAction::OrderUp
-                    } else {
-                        BidAction::Pass
-                    }
+                    (trump_count >= 2 && (has_right || has_left)) || trump_count >= 3
                 }
                 Difficulty::Advanced => {
                     let is_dealer = seat == state.dealer;
                     let strength = trump_strength(hand, trump_if_ordered);
-                    if strength >= 5 { BidAction::OrderUp }
-                    else if strength >= 4 && is_dealer { BidAction::OrderUp }
-                    else { BidAction::Pass }
+                    strength >= 5 || (strength >= 4 && is_dealer)
                 }
                 Difficulty::Expert => {
                     let is_dealer = seat == state.dealer;
                     let is_partner = (seat + 2) % 4 == state.dealer;
                     let strength = trump_strength(hand, trump_if_ordered);
                     let score_pressure = needs_points(state, seat);
-
-                    if strength >= 5 { BidAction::OrderUp }
-                    else if strength >= 4 && (is_dealer || is_partner) { BidAction::OrderUp }
-                    else if strength >= 3 && score_pressure { BidAction::OrderUp }
-                    else { BidAction::Pass }
+                    strength >= 5 || (strength >= 4 && (is_dealer || is_partner))
+                        || (strength >= 3 && score_pressure)
                 }
+            };
+
+            if wants_order_up {
+                if should_go_alone(hand, trump_if_ordered) {
+                    BidAction::GoAlone
+                } else {
+                    BidAction::OrderUp
+                }
+            } else {
+                BidAction::Pass
             }
         }
         GamePhase::BiddingRound2 => {
@@ -128,7 +136,13 @@ pub fn choose_bid_for(state: &GameState, difficulty: Difficulty, _rng: &mut ChaC
             }
 
             match best_suit {
-                Some(suit) => BidAction::CallSuit(suit),
+                Some(suit) => {
+                    if should_go_alone(hand, suit) {
+                        BidAction::GoAloneCall(suit)
+                    } else {
+                        BidAction::CallSuit(suit)
+                    }
+                }
                 None => BidAction::Pass,
             }
         }
@@ -487,8 +501,8 @@ mod tests {
         let mut rng = ChaCha20Rng::seed_from_u64(42);
 
         let card = choose_play(&state, Difficulty::Expert, &mut rng);
-        // Should dump lowest card since we've already won
-        assert_eq!(card, Card::new(Hearts, Nine));
+        // Must lead non-trump (Clubs Ace) since Hearts Nine is trump
+        assert_eq!(card, Card::new(Clubs, Ace));
     }
 
     #[test]

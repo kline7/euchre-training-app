@@ -1,4 +1,6 @@
+import { useState } from 'react';
 import { motion } from 'motion/react';
+import CardComponent, { type CardData } from './cards/Card';
 
 const SUIT_NAMES = ['Hearts', 'Diamonds', 'Clubs', 'Spades'];
 const SUIT_SYMBOLS = ['♥', '♦', '♣', '♠'];
@@ -6,12 +8,15 @@ const SUIT_COLORS = ['#e74c3c', '#e74c3c', '#2c3e50', '#2c3e50'];
 
 interface BiddingPanelProps {
   phase: 'round1' | 'round2';
-  upcardSuit: number;
+  upcard: CardData | null;
   isDealer: boolean;
   onBid: (action: number) => void;
 }
 
-export default function BiddingPanel({ phase, upcardSuit, isDealer, onBid }: BiddingPanelProps) {
+export default function BiddingPanel({ phase, upcard, isDealer, onBid }: BiddingPanelProps) {
+  const upcardSuit = upcard?.suit ?? 0;
+  const [goAlone, setGoAlone] = useState(false);
+
   return (
     <motion.div
       className="bidding-panel"
@@ -29,22 +34,9 @@ export default function BiddingPanel({ phase, upcardSuit, isDealer, onBid }: Bid
       }}
     >
       {/* Upcard display */}
-      {phase === 'round1' && (
+      {phase === 'round1' && upcard && (
         <div style={{ textAlign: 'center' }}>
-          <div style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            width: 48,
-            height: 64,
-            background: '#fff',
-            borderRadius: 6,
-            border: '2px solid #ccc',
-            fontSize: '1.8rem',
-            color: SUIT_COLORS[upcardSuit],
-          }}>
-            {SUIT_SYMBOLS[upcardSuit]}
-          </div>
+          <CardComponent card={upcard} size="md" />
         </div>
       )}
 
@@ -54,10 +46,35 @@ export default function BiddingPanel({ phase, upcardSuit, isDealer, onBid }: Bid
           : 'Name trump suit'}
       </div>
 
+      {/* Go Alone toggle for Round 2 */}
+      {phase === 'round2' && (
+        <label
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 8,
+            cursor: 'pointer',
+            color: goAlone ? '#f1c40f' : '#999',
+            fontSize: '0.8rem',
+            fontWeight: 600,
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={goAlone}
+            onChange={(e) => setGoAlone(e.target.checked)}
+            style={{ accentColor: '#f1c40f' }}
+          />
+          Go Alone
+        </label>
+      )}
+
       <div style={{ display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap' }}>
         {phase === 'round1' ? (
           <>
             <BidButton label="Order Up" onClick={() => onBid(1)} color="#27ae60" />
+            <BidButton label="Go Alone" onClick={() => onBid(6)} color="#f1c40f" textColor="#000" />
             <BidButton label="Pass" onClick={() => onBid(0)} color="#7f8c8d" />
           </>
         ) : (
@@ -67,7 +84,7 @@ export default function BiddingPanel({ phase, upcardSuit, isDealer, onBid }: Bid
                 <BidButton
                   key={suit}
                   label={`${SUIT_SYMBOLS[suit]} ${SUIT_NAMES[suit]}`}
-                  onClick={() => onBid(2 + suit)}
+                  onClick={() => onBid(goAlone ? 7 + suit : 2 + suit)}
                   color={SUIT_COLORS[suit]}
                 />
               ) : null,
@@ -82,7 +99,12 @@ export default function BiddingPanel({ phase, upcardSuit, isDealer, onBid }: Bid
   );
 }
 
-function BidButton({ label, onClick, color }: { label: string; onClick: () => void; color: string }) {
+function BidButton({ label, onClick, color, textColor = '#fff' }: {
+  label: string;
+  onClick: () => void;
+  color: string;
+  textColor?: string;
+}) {
   return (
     <motion.button
       onClick={onClick}
@@ -90,7 +112,7 @@ function BidButton({ label, onClick, color }: { label: string; onClick: () => vo
       whileTap={{ scale: 0.95 }}
       style={{
         background: color,
-        color: '#fff',
+        color: textColor,
         border: 'none',
         borderRadius: 6,
         padding: '8px 16px',

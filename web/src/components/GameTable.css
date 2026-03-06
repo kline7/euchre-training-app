@@ -37,23 +37,51 @@
 /* Dealer marker */
 .dealer-marker {
   position: absolute;
-  width: 24px;
-  height: 24px;
+  width: 20px;
+  height: 20px;
   border-radius: 50%;
   background: #f39c12;
   color: #000;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.7rem;
+  font-size: 0.65rem;
   font-weight: 700;
   z-index: 10;
 }
 
-.dealer-bottom { bottom: 105px; left: 50%; transform: translateX(60px); }
-.dealer-top { top: 105px; left: 50%; transform: translateX(60px); }
-.dealer-left { left: 105px; top: 50%; transform: translateY(-20px); }
-.dealer-right { right: 105px; top: 50%; transform: translateY(-20px); }
+/* Position markers at the outer edge of each seat, not overlapping cards */
+.dealer-bottom { bottom: 6px; left: 50%; transform: translateX(-130px); }
+.dealer-top { top: 6px; left: 50%; transform: translateX(-130px); }
+.dealer-left { left: 6px; top: 50%; transform: translateY(-60px); }
+.dealer-right { right: 6px; top: 50%; transform: translateY(-60px); }
+
+/* Maker marker */
+.maker-marker {
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #ffd700;
+  color: #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.65rem;
+  font-weight: 700;
+  z-index: 10;
+}
+
+.maker-bottom { bottom: 6px; left: 50%; transform: translateX(-105px); }
+.maker-top { top: 6px; left: 50%; transform: translateX(-105px); }
+.maker-left { left: 6px; top: 50%; transform: translateY(-35px); }
+.maker-right { right: 6px; top: 50%; transform: translateY(-35px); }
+
+/* Maker row in score panel */
+.maker-row {
+  margin-top: 2px;
+  opacity: 0.8;
+}
 
 /* Trick area */
 .trick-area {
@@ -70,6 +98,15 @@
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
+}
+
+/* Upcard displayed during bidding */
+.upcard {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) rotate(3deg);
+  z-index: 1;
 }
 
 .thinking-indicator {
@@ -146,6 +183,44 @@
   margin-top: 4px;
 }
 
+/* Bid indicators (speech bubbles) */
+.bid-indicator {
+  position: absolute;
+  background: rgba(0, 0, 0, 0.7);
+  color: #ffd700;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 12px;
+  white-space: nowrap;
+  z-index: 15;
+  pointer-events: none;
+}
+
+.bid-indicator-bottom {
+  bottom: 100px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.bid-indicator-top {
+  top: 100px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.bid-indicator-left {
+  left: 90px;
+  top: 50%;
+  transform: translateY(20px);
+}
+
+.bid-indicator-right {
+  right: 90px;
+  top: 50%;
+  transform: translateY(20px);
+}
+
 /* Mobile responsive */
 @media (max-width: 600px) {
   .game-table {
@@ -162,19 +237,40 @@
   }
 
   .dealer-marker {
-    width: 20px;
-    height: 20px;
-    font-size: 0.6rem;
+    width: 18px;
+    height: 18px;
+    font-size: 0.55rem;
   }
 
-  .dealer-bottom { bottom: 85px; transform: translateX(40px); }
-  .dealer-top { top: 85px; transform: translateX(40px); }
-  .dealer-left { left: 75px; }
-  .dealer-right { right: 75px; }
+  .dealer-bottom { bottom: 4px; transform: translateX(-100px); }
+  .dealer-top { top: 4px; transform: translateX(-100px); }
+  .dealer-left { left: 4px; transform: translateY(-50px); }
+  .dealer-right { right: 4px; transform: translateY(-50px); }
+
+  .maker-marker {
+    width: 18px;
+    height: 18px;
+    font-size: 0.55rem;
+  }
+
+  .maker-bottom { bottom: 4px; transform: translateX(-78px); }
+  .maker-top { top: 4px; transform: translateX(-78px); }
+  .maker-left { left: 4px; transform: translateY(-28px); }
+  .maker-right { right: 4px; transform: translateY(-28px); }
 
   .hand-label {
     font-size: 0.6rem;
   }
+
+  .bid-indicator {
+    font-size: 0.65rem;
+    padding: 3px 8px;
+  }
+
+  .bid-indicator-bottom { bottom: 80px; }
+  .bid-indicator-top { top: 80px; }
+  .bid-indicator-left { left: 65px; }
+  .bid-indicator-right { right: 65px; }
 }
 
 @media (max-width: 400px) {

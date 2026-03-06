@@ -1,10 +1,15 @@
 use rand::prelude::*;
 use rand_chacha::ChaCha20Rng;
 
-use crate::game::card::{Card, CardSet};
+use crate::game::card::{Card, CardSet, Suit, Rank};
 use crate::game::rules::legal_plays;
 use crate::game::state::{GameState, Seat, team_of};
 use crate::ai::dds::Solver;
+
+/// Dummy card for initializing fixed-size arrays (value is arbitrary).
+const DUMMY_CARD: Card = Card::new(Suit::Hearts, Rank::Nine);
+/// Max legal plays in Euchre (5 cards + safety margin).
+const MAX_LEGAL: usize = 6;
 
 /// Result of evaluating a single card play via PIMC.
 #[derive(Debug, Clone)]
@@ -26,17 +31,19 @@ pub struct PimcResult {
 
 /// Generate a single determinization: randomly assign unknown cards to opponents
 /// consistent with observed information (voids).
+/// Uses fixed-size arrays — zero heap allocations.
 fn generate_determinization(
     state: &GameState,
     perspective_seat: Seat,
     rng: &mut ChaCha20Rng,
 ) -> Option<GameState> {
-    let mut new_state = state.clone();
+    let mut new_state = *state; // Copy (no heap allocation)
 
-    // Cards we know: our hand + cards already played (not in any hand)
-    // Collect all unknown cards (not in our hand, not in the current trick)
-    let mut unknown_cards: Vec<Card> = Vec::new();
-    let mut seats_to_fill: Vec<(Seat, u32)> = Vec::new();
+    // Fixed-size buffers: max 15 unknown cards (3 opponents × 5), max 3 seats
+    let mut unknown_cards = [DUMMY_CARD; 15];
+    let mut unknown_len = 0usize;
+    let mut seats_to_fill = [(0u8, 0u32); 3];
+    let mut seats_len = 0usize;
 
     for seat in 0..4u8 {
         if seat == perspective_seat {
@@ -48,32 +55,31 @@ fn generate_determinization(
         }
         let hand = state.hands[seat as usize];
         let card_count = hand.count();
-        // Collect this seat's cards as unknown
         for card in hand {
-            unknown_cards.push(card);
+            unknown_cards[unknown_len] = card;
+            unknown_len += 1;
         }
-        seats_to_fill.push((seat, card_count));
+        seats_to_fill[seats_len] = (seat, card_count);
+        seats_len += 1;
     }
 
     // Shuffle unknown cards
-    unknown_cards.shuffle(rng);
+    unknown_cards[..unknown_len].shuffle(rng);
 
     // Distribute cards to seats, respecting known voids
-    // Simple approach: try random assignment, reject if violates void constraints
-    // For Euchre's small card set, rejection sampling is fast enough
+    // Rejection sampling — fast for Euchre's small card set
     for _attempt in 0..100 {
-        let mut shuffled = unknown_cards.clone();
-        shuffled.shuffle(rng);
+        let mut shuffled = unknown_cards; // Stack copy, no heap allocation
+        shuffled[..unknown_len].shuffle(rng);
 
         let mut valid = true;
         let mut idx = 0;
 
-        for &(seat, count) in &seats_to_fill {
+        for &(seat, count) in &seats_to_fill[..seats_len] {
             let mut hand = CardSet::EMPTY;
             let void_bits = state.known_voids[seat as usize].0;
 
             for card in &shuffled[idx..idx + count as usize] {
-                // Check if this card violates a known void
                 let eff_suit = card.effective_suit(state.trump);
                 if void_bits & (1 << (eff_suit as u32)) != 0 {
                     valid = false;
@@ -94,7 +100,7 @@ fn generate_determinization(
 
     // If we can't find a valid assignment after 100 tries, return unconstrained
     let mut idx = 0;
-    for &(seat, count) in &seats_to_fill {
+    for &(seat, count) in &seats_to_fill[..seats_len] {
         let mut hand = CardSet::EMPTY;
         for card in &unknown_cards[idx..idx + count as usize] {
             hand.insert(*card);
@@ -116,8 +122,12 @@ pub fn evaluate_plays(
     let legal = legal_plays(hand, state);
     let team = team_of(seat);
 
-    let legal_cards: Vec<Card> = legal.iter().collect();
-    let num_cards = legal_cards.len();
+    let mut legal_cards = [DUMMY_CARD; MAX_LEGAL];
+    let mut num_cards = 0;
+    for card in legal.iter() {
+        legal_cards[num_cards] = card;
+        num_cards += 1;
+    }
 
     if num_cards == 0 {
         return PimcResult {
@@ -127,10 +137,10 @@ pub fn evaluate_plays(
         };
     }
 
-    // Accumulate results per card
-    let mut trick_sums = vec![0.0f64; num_cards];
-    let mut win_counts = vec![0u32; num_cards];
-    let mut point_sums = vec![0.0f64; num_cards];
+    // Accumulate results per card — fixed-size, no heap allocation
+    let mut trick_sums = [0.0f64; MAX_LEGAL];
+    let mut win_counts = [0u32; MAX_LEGAL];
+    let mut point_sums = [0.0f64; MAX_LEGAL];
     let mut total_nodes = 0u64;
 
     let mut rng = ChaCha20Rng::seed_from_u64(seed);
@@ -145,7 +155,7 @@ pub fn evaluate_plays(
         solver.clear_tt();
 
         // Evaluate each legal card in this world
-        for (i, &card) in legal_cards.iter().enumerate() {
+        for (i, &card) in legal_cards[..num_cards].iter().enumerate() {
             let new_state = crate::game::rules::play_card(&det_state, seat, card);
             let result = solver.solve(&new_state);
             total_nodes += solver.total_nodes;
@@ -172,7 +182,7 @@ pub fn evaluate_plays(
     }
 
     let n = num_determinizations as f64;
-    let evaluations = legal_cards
+    let evaluations = legal_cards[..num_cards]
         .iter()
         .enumerate()
         .map(|(i, &card)| EvalResult {

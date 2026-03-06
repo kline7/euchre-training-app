@@ -1,6 +1,11 @@
-use crate::game::card::{Card, CardSet};
+use crate::game::card::{Card, CardSet, Suit, Rank};
 use crate::game::rules::{legal_plays, play_card};
 use crate::game::state::{GameState, GamePhase, team_of};
+
+/// Dummy card for initializing fixed-size arrays (value is arbitrary).
+const DUMMY_CARD: Card = Card::new(Suit::Hearts, Rank::Nine);
+/// Max legal plays in Euchre playing phase (5 cards + safety margin).
+const MAX_MOVES: usize = 6;
 
 /// Result of a DDS solve: tricks won by each team from this position.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -181,11 +186,11 @@ fn alpha_beta(
     // QuickTricks pruning at trick boundaries
     if at_trick_start {
         let (qt0, qt1) = quick_tricks(state);
-        let remaining_tricks = 5 - (state.trick_number - 1);
+        let remaining_tricks = 5u8.saturating_sub(state.trick_number.saturating_sub(1));
 
         // If team 0's guaranteed tricks + already won >= beta, prune
-        let team0_min = state.tricks_won[0] + qt0;
-        let team0_max = state.tricks_won[0] + remaining_tricks - qt1;
+        let team0_min = state.tricks_won[0].saturating_add(qt0).min(5);
+        let team0_max = (state.tricks_won[0] + remaining_tricks).saturating_sub(qt1);
 
         if team0_min as i8 >= beta {
             return team0_min;
@@ -207,7 +212,7 @@ fn alpha_beta(
     let maximizing = team == 0;
 
     // Card equivalence: group cards that are functionally identical
-    let cards = order_moves(legal, state);
+    let (cards, num_cards) = order_moves(legal, state);
 
     let mut best;
     let mut a = alpha;
@@ -215,7 +220,7 @@ fn alpha_beta(
 
     if maximizing {
         best = 0u8;
-        for card in cards {
+        for &card in &cards[..num_cards] {
             let new_state = play_card(state, seat, card);
             let score = alpha_beta(&new_state, a, b, tt, keys, nodes);
             if score > best { best = score; }
@@ -224,7 +229,7 @@ fn alpha_beta(
         }
     } else {
         best = 5; // Max possible tricks for team 0
-        for card in cards {
+        for &card in &cards[..num_cards] {
             let new_state = play_card(state, seat, card);
             let score = alpha_beta(&new_state, a, b, tt, keys, nodes);
             if score < best { best = score; }
@@ -242,26 +247,28 @@ fn alpha_beta(
     best
 }
 
-/// Order moves for better alpha-beta pruning.
-/// Play higher cards first when maximizing, lower when minimizing.
-/// Trump cards first when they might win.
-fn order_moves(legal: CardSet, state: &GameState) -> Vec<Card> {
-    let mut cards: Vec<Card> = legal.iter().collect();
+/// Order moves for better alpha-beta pruning. Returns fixed-size array + count.
+/// Zero heap allocations — critical for WASM DDS performance.
+fn order_moves(legal: CardSet, state: &GameState) -> ([Card; MAX_MOVES], usize) {
+    let mut cards = [DUMMY_CARD; MAX_MOVES];
+    let mut len = 0;
+    for card in legal.iter() {
+        cards[len] = card;
+        len += 1;
+    }
 
     let trump = state.trump;
     let team = team_of(state.next_to_play());
     let maximizing = team == 0;
 
-    cards.sort_by(|a, b| {
+    cards[..len].sort_by(|a, b| {
         let a_trump = a.effective_suit(trump) == trump;
         let b_trump = b.effective_suit(trump) == trump;
 
-        // Sort trump cards before non-trump
         match (a_trump, b_trump) {
             (true, false) => std::cmp::Ordering::Less,
             (false, true) => std::cmp::Ordering::Greater,
             _ => {
-                // Within same category, sort by trick power
                 let pa = a.trick_power(trump);
                 let pb = b.trick_power(trump);
                 if maximizing {
@@ -273,14 +280,14 @@ fn order_moves(legal: CardSet, state: &GameState) -> Vec<Card> {
         }
     });
 
-    cards
+    (cards, len)
 }
 
 /// Solve a position with all cards visible (double-dummy).
 /// Returns tricks won by team 0.
 fn solve(state: &GameState, tt: &mut TranspositionTable, keys: &ZobristKeys) -> (DdsResult, u64) {
     let mut nodes = 0u64;
-    let team0_tricks = alpha_beta(state, -1, 6, tt, keys, &mut nodes);
+    let team0_tricks = alpha_beta(state, -1, 6, tt, keys, &mut nodes).min(5);
     let result = DdsResult {
         tricks: [team0_tricks, 5 - team0_tricks],
     };

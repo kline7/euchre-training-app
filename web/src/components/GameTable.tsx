@@ -11,18 +11,28 @@ interface TrickCard {
   card: CardData;
 }
 
+interface BidEntry {
+  seat: number;
+  label: string;
+}
+
 interface GameTableProps {
   hands: CardData[][];         // 4 hands
   currentTrick: TrickCard[];   // cards played in current trick
   legalPlays: CardData[];      // cards the human can play
   trumpSuit: number;
   dealer: number;
+  maker: number;
   tricksWon: [number, number];
   scores: [number, number];
   trickNumber: number;
   humanSeat: number;           // which seat is the human (0)
   onPlayCard: (card: CardData) => void;
   thinking: boolean;
+  upcard?: CardData | null;
+  phase?: string;
+  sittingOut?: number;         // seat sitting out (-1 or undefined = none)
+  bidLog?: BidEntry[];         // visible AI bid indicators
 }
 
 function isCardPlayable(card: CardData, legalPlays: CardData[]): boolean {
@@ -48,12 +58,17 @@ export default function GameTable({
   legalPlays,
   trumpSuit,
   dealer,
+  maker,
   tricksWon,
   scores,
   trickNumber,
   humanSeat,
   onPlayCard,
   thinking,
+  upcard,
+  phase,
+  sittingOut,
+  bidLog = [],
 }: GameTableProps) {
   const [selectedIdx, setSelectedIdx] = useState(0);
   const humanHand = hands[humanSeat] || [];
@@ -100,18 +115,45 @@ export default function GameTable({
         <div className="tricks-row">
           Tricks: {tricksWon[0]} - {tricksWon[1]} | Trick {trickNumber}/5
         </div>
-        <div className="trump-row">
-          Trump: <span style={{ color: trumpSuit < 2 ? '#e74c3c' : '#2c3e50' }}>
-            {SUIT_NAMES[trumpSuit]}
-          </span>
-        </div>
+        {phase && (phase === 'bidding1' || phase === 'bidding2') ? (
+          <div className="trump-row">Trump: —</div>
+        ) : (
+          <>
+            <div className="trump-row">
+              Trump: <span style={{ color: trumpSuit < 2 ? '#ff6b6b' : '#b0b8c8' }}>
+                {SUIT_NAMES[trumpSuit]}
+              </span>
+            </div>
+            <div className="maker-row">
+              Called by: <span style={{ color: '#ffd700' }}>
+                {maker % 2 === humanSeat % 2 ? 'Us' : 'Them'}
+              </span>
+            </div>
+          </>
+        )}
       </div>
 
       {/* Dealer marker */}
       <div className={`dealer-marker dealer-${seatPosition(dealer, humanSeat)}`}>D</div>
 
+      {/* Maker marker (shown after bidding) */}
+      {phase && phase !== 'bidding1' && phase !== 'bidding2' && phase !== 'dealing' && (
+        <div className={`maker-marker maker-${seatPosition(maker, humanSeat)}`}>M</div>
+      )}
+
       {/* Trick area (center) */}
       <div className="trick-area">
+        {/* Upcard shown during bidding: face-up in round 1, face-down in round 2 (turned down) */}
+        {upcard && phase === 'bidding1' && (
+          <div className="upcard">
+            <CardComponent card={upcard} size="sm" />
+          </div>
+        )}
+        {upcard && phase === 'bidding2' && (
+          <div className="upcard">
+            <CardComponent card={upcard} faceUp={false} size="sm" />
+          </div>
+        )}
         <AnimatePresence>
           {currentTrick.map((tc) => {
             const pos = seatPosition(tc.seat, humanSeat);
@@ -138,9 +180,14 @@ export default function GameTable({
         const pos = seatPosition(seat, humanSeat);
         const isHuman = seat === humanSeat;
         const hand = hands[seat] || [];
+        const isSittingOut = sittingOut !== undefined && sittingOut >= 0 && sittingOut === seat;
 
         return (
-          <div key={seat} className={`hand hand-${pos}`}>
+          <div
+            key={seat}
+            className={`hand hand-${pos}`}
+            style={isSittingOut ? { opacity: 0.35, filter: 'grayscale(0.8)' } : undefined}
+          >
             <div className="hand-cards">
               {hand.map((card, i) => (
                 <motion.div
@@ -155,9 +202,9 @@ export default function GameTable({
                 >
                   <CardComponent
                     card={card}
-                    faceUp={isHuman}
-                    playable={isHuman && isCardPlayable(card, legalPlays)}
-                    selected={isHuman && playableIndices[selectedIdx] === i}
+                    faceUp={isHuman && !isSittingOut}
+                    playable={isHuman && !isSittingOut && isCardPlayable(card, legalPlays)}
+                    selected={isHuman && !isSittingOut && playableIndices[selectedIdx] === i}
                     onClick={() => onPlayCard(card)}
                     size={pos === 'bottom' ? 'md' : 'sm'}
                   />
@@ -165,11 +212,32 @@ export default function GameTable({
               ))}
             </div>
             <div className="hand-label">
-              {pos === 'bottom' ? 'You' : pos === 'top' ? 'Partner' : `Opponent ${pos === 'left' ? 'L' : 'R'}`}
+              {isSittingOut
+                ? 'Sitting Out'
+                : pos === 'bottom' ? 'You' : pos === 'top' ? 'Partner' : `Opponent ${pos === 'left' ? 'L' : 'R'}`}
             </div>
           </div>
         );
       })}
+
+      {/* Bid indicators (speech bubbles near each seat) */}
+      <AnimatePresence>
+        {bidLog.map((entry, i) => {
+          const pos = seatPosition(entry.seat, humanSeat);
+          return (
+            <motion.div
+              key={`bid-${entry.seat}-${i}`}
+              className={`bid-indicator bid-indicator-${pos}`}
+              initial={{ opacity: 0, scale: 0.6 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.6 }}
+              transition={{ type: 'spring', stiffness: 400, damping: 25 }}
+            >
+              {entry.label}
+            </motion.div>
+          );
+        })}
+      </AnimatePresence>
     </div>
   );
 }

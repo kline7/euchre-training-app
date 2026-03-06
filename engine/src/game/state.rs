@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use crate::game::card::{Card, CardSet, Suit};
+use crate::game::card::{Card, CardSet, Suit, Rank};
 
 pub type Seat = u8; // 0-3
 pub type Team = u8;  // 0 or 1
@@ -30,7 +30,8 @@ pub enum BidAction {
     Pass,
     OrderUp,            // Round 1: order dealer to pick up upcard
     CallSuit(Suit),     // Round 2: name trump suit
-    GoAlone,            // Modifier: play without partner
+    GoAlone,            // Round 1: order up alone
+    GoAloneCall(Suit),  // Round 2: call suit alone
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -39,9 +40,53 @@ pub struct TrickCard {
     pub card: Card,
 }
 
+const EMPTY_TC: TrickCard = TrickCard { seat: 0, card: Card::new(Suit::Hearts, Rank::Nine) };
+
+/// Fixed-size trick buffer (max 4 cards). Drop-in replacement for Vec<TrickCard>
+/// that eliminates heap allocations — critical for DDS search performance.
+#[derive(Debug, Clone, Copy)]
+pub struct TrickBuf {
+    cards: [TrickCard; 4],
+    len: u8,
+}
+
+impl TrickBuf {
+    pub const fn new() -> Self {
+        Self { cards: [EMPTY_TC; 4], len: 0 }
+    }
+
+    pub fn push(&mut self, tc: TrickCard) {
+        self.cards[self.len as usize] = tc;
+        self.len += 1;
+    }
+
+    pub fn clear(&mut self) {
+        self.len = 0;
+    }
+
+    pub fn len(&self) -> usize {
+        self.len as usize
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    pub fn first(&self) -> Option<&TrickCard> {
+        if self.len > 0 { Some(&self.cards[0]) } else { None }
+    }
+}
+
+impl std::ops::Deref for TrickBuf {
+    type Target = [TrickCard];
+    fn deref(&self) -> &[TrickCard] {
+        &self.cards[..self.len as usize]
+    }
+}
+
 /// Full game state for a single hand of Euchre.
-/// Designed to be cheaply cloned for DDS search.
-#[derive(Debug, Clone)]
+/// Designed to be cheaply copied for DDS search (no heap allocations).
+#[derive(Debug, Clone, Copy)]
 pub struct GameState {
     // Hands — one CardSet per seat (bitboard)
     pub hands: [CardSet; 4],
@@ -58,8 +103,8 @@ pub struct GameState {
     // Game phase
     pub phase: GamePhase,
 
-    // Current trick
-    pub current_trick: Vec<TrickCard>,
+    // Current trick — fixed-size buffer, zero heap allocations
+    pub current_trick: TrickBuf,
     pub lead_seat: Seat,
     pub trick_number: u8, // 1-5
 
@@ -85,7 +130,7 @@ impl GameState {
             alone: false,
             sitting_out: None,
             phase: GamePhase::BiddingRound1,
-            current_trick: Vec::with_capacity(4),
+            current_trick: TrickBuf::new(),
             lead_seat: (dealer + 1) % 4,
             trick_number: 1,
             tricks_won: [0, 0],

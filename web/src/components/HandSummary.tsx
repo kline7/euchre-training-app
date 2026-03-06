@@ -20,12 +20,22 @@ interface Decision {
   grade: string;
 }
 
+interface BidAnalysis {
+  grade: string;
+  message: string;
+  humanCalled: boolean;
+  trumpStrength: number;
+  wasEuchred: boolean;
+}
+
 interface HandSummaryProps {
   decisions: Decision[];
   totalWpc: number;
   totalEtd: number;
   tricksWon: [number, number];
   handPoints: number;
+  alone?: boolean;
+  bidAnalysis?: BidAnalysis | null;
   onContinue: () => void;
 }
 
@@ -39,6 +49,8 @@ export default function HandSummary({
   totalEtd: _,
   tricksWon,
   handPoints,
+  alone,
+  bidAnalysis,
   onContinue,
 }: HandSummaryProps) {
   const errors = decisions.filter((d) => d.grade !== 'best' && d.grade !== 'good');
@@ -59,7 +71,23 @@ export default function HandSummary({
         color: '#e0e0e0',
       }}
     >
-      <h3 style={{ margin: '0 0 12px', textAlign: 'center' }}>Hand Summary</h3>
+      <h3 style={{ margin: '0 0 12px', textAlign: 'center' }}>
+        Hand Summary
+        {alone && (
+          <span style={{
+            marginLeft: 8,
+            background: '#f1c40f',
+            color: '#000',
+            padding: '2px 8px',
+            borderRadius: 4,
+            fontSize: '0.7rem',
+            fontWeight: 700,
+            verticalAlign: 'middle',
+          }}>
+            Alone!
+          </span>
+        )}
+      </h3>
 
       <div style={{ display: 'flex', justifyContent: 'space-around', marginBottom: 12 }}>
         <div style={{ textAlign: 'center' }}>
@@ -79,6 +107,37 @@ export default function HandSummary({
           <div style={{ fontSize: '0.7rem', opacity: 0.7 }}>Win% Lost</div>
         </div>
       </div>
+
+      {bidAnalysis && (
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          padding: '6px 8px',
+          marginBottom: 10,
+          background: 'rgba(255, 255, 255, 0.05)',
+          borderRadius: 6,
+          fontSize: '0.8rem',
+        }}>
+          <span
+            style={{
+              background: GRADE_COLORS[bidAnalysis.grade] || '#888',
+              color: '#fff',
+              padding: '1px 6px',
+              borderRadius: 4,
+              fontSize: '0.7rem',
+              fontWeight: 600,
+              textTransform: 'uppercase',
+              flexShrink: 0,
+            }}
+          >
+            {bidAnalysis.grade}
+          </span>
+          <span style={{ opacity: 0.9 }}>
+            {bidAnalysis.humanCalled ? 'Called trump' : 'Passed'}: {bidAnalysis.message}
+          </span>
+        </div>
+      )}
 
       {topErrors.length > 0 ? (
         <div>

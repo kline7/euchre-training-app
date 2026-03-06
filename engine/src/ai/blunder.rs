@@ -66,7 +66,7 @@ pub fn analyze_decision(pimc: &PimcResult, played: Card) -> DecisionAnalysis {
 
     let actual = pimc.evaluations.iter()
         .find(|e| e.card == played)
-        .expect("played card must be in evaluations");
+        .unwrap_or(optimal);
 
     let wpc = (optimal.win_probability - actual.win_probability).max(0.0);
     let etd = optimal.expected_tricks - actual.expected_tricks;

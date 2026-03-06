@@ -4,10 +4,9 @@ use rand_chacha::ChaCha20Rng;
 use rand::SeedableRng;
 
 use crate::game::card::{Card, CardSet, Suit, Rank};
-use crate::game::state::{GameState, GamePhase, BidAction};
+use crate::game::state::{GameState, GamePhase, BidAction, TrickCard, TrickBuf};
 use crate::game::rules;
 use crate::game::scoring;
-use crate::ai::dds::Solver;
 use crate::ai::pimc;
 use crate::ai::blunder;
 use crate::ai::opponents::{Difficulty, choose_play, choose_bid_for};
@@ -115,8 +114,6 @@ fn grade_to_string(grade: blunder::MoveGrade) -> String {
 #[wasm_bindgen]
 pub struct Engine {
     state: GameState,
-    #[allow(dead_code)]
-    solver: Solver,
     rng: ChaCha20Rng,
     difficulty: Difficulty,
     /// Current bidding seat (cycles left of dealer → dealer)
@@ -125,6 +122,8 @@ pub struct Engine {
     pass_count: u8,
     /// The turned-down suit (from round 1), cannot be called in round 2
     turned_down_suit: Option<Suit>,
+    /// Snapshot of last completed trick (for UI to display before clearing)
+    last_completed_trick: TrickBuf,
 }
 
 #[wasm_bindgen]
@@ -135,6 +134,8 @@ impl Engine {
         let config: JsGameConfig = serde_wasm_bindgen::from_value(config_js)
             .map_err(|e| JsError::new(&format!("Invalid config: {}", e)))?;
 
+        console_error_panic_hook::set_once();
+
         let mut rng = ChaCha20Rng::seed_from_u64(config.seed);
         let hands = deal_hands(&mut rng);
         let upcard = pick_upcard(&hands, &mut rng);
@@ -143,12 +144,12 @@ impl Engine {
         let bid_seat = (config.dealer + 1) % 4; // Left of dealer bids first
         Ok(Engine {
             state,
-            solver: Solver::new(),
             rng,
             difficulty: js_to_difficulty(config.difficulty),
             bid_seat,
             pass_count: 0,
             turned_down_suit: None,
+            last_completed_trick: TrickBuf::new(),
         })
     }
 
@@ -196,8 +197,23 @@ impl Engine {
             .map_err(|e| JsError::new(&format!("Invalid card: {}", e)))?;
         let card = js_to_card(&js_card);
         let seat = self.state.next_to_play();
+
+        // Add card to trick first to capture the complete trick snapshot
+        let mut preview = self.state;
+        preview.current_trick.push(TrickCard { seat, card });
+        if preview.trick_complete() {
+            self.last_completed_trick = preview.current_trick;
+        } else {
+            self.last_completed_trick.clear();
+        }
+
         self.state = rules::play_card(&self.state, seat, card);
         Ok(())
+    }
+
+    /// Whether a completed trick snapshot is waiting to be displayed.
+    pub fn has_completed_trick(&self) -> bool {
+        !self.last_completed_trick.is_empty()
     }
 
     /// Get AI's chosen play for the current position.
@@ -207,18 +223,44 @@ impl Engine {
     }
 
     /// Get AI's chosen bid for the current position.
-    /// Returns a number: 0=Pass, 1=OrderUp, 2-5=CallSuit(H/D/C/S), 6=GoAlone
+    /// Returns: 0=Pass, 1=OrderUp, 2-5=CallSuit(H/D/C/S),
+    ///          6=OrderUpAlone(R1), 7-10=CallSuitAlone(H/D/C/S)(R2)
     pub fn get_ai_bid(&mut self) -> u8 {
         let bid = choose_bid_for(&self.state, self.difficulty, &mut self.rng, self.bid_seat);
         match bid {
             BidAction::Pass => 0,
             BidAction::OrderUp => 1,
             BidAction::CallSuit(suit) => 2 + suit as u8,
-            BidAction::GoAlone => 6,
+            BidAction::GoAlone => {
+                // Map GoAlone to the right value based on bidding round
+                if self.state.phase == GamePhase::BiddingRound1 {
+                    6 // Order up alone
+                } else {
+                    // AI chose GoAlone in round 2 — shouldn't happen with current AI
+                    // (AI returns GoAlone only from R1 path), but handle gracefully
+                    6
+                }
+            }
+            BidAction::GoAloneCall(suit) => 7 + suit as u8,
         }
     }
 
-    /// Apply a bid action. bid_val: 0=Pass, 1=OrderUp, 2-5=CallSuit(H/D/C/S), 6=GoAlone
+    /// Is this hand being played alone?
+    pub fn is_alone(&self) -> bool {
+        self.state.alone
+    }
+
+    /// Get the seat that is sitting out (-1 if none).
+    pub fn sitting_out(&self) -> i8 {
+        match self.state.sitting_out {
+            Some(seat) => seat as i8,
+            None => -1,
+        }
+    }
+
+    /// Apply a bid action.
+    /// bid_val: 0=Pass, 1=OrderUp, 2-5=CallSuit(H/D/C/S),
+    ///          6=OrderUpAlone(R1), 7-10=CallSuitAlone(H/D/C/S)(R2)
     pub fn apply_bid(&mut self, bid_val: u8) {
         let seat = self.bid_seat;
         match bid_val {
@@ -246,9 +288,10 @@ impl Engine {
                 // Order up — dealer picks up upcard, set trump
                 self.state.trump = self.state.upcard.suit;
                 self.state.maker = seat;
-                // Dealer picks up upcard and discards weakest
-                self.do_dealer_pickup();
-                self.state.phase = GamePhase::Playing;
+                // Add upcard to dealer's hand; enter DealerDiscard phase
+                let dealer = self.state.dealer as usize;
+                self.state.hands[dealer].insert(self.state.upcard);
+                self.state.phase = GamePhase::DealerDiscard;
                 self.state.lead_seat = (self.state.dealer + 1) % 4;
             }
             2..=5 => {
@@ -265,17 +308,26 @@ impl Engine {
                 self.state.lead_seat = (self.state.dealer + 1) % 4;
             }
             6 => {
-                // GoAlone — must be combined with a preceding order-up/call
-                // Treat as order-up + alone for round 1, or last-called suit for round 2
+                // GoAlone in Round 1 — order up alone
                 self.state.alone = true;
                 let partner = (seat + 2) % 4;
                 self.state.sitting_out = Some(partner);
                 self.state.maker = seat;
-
-                if self.state.phase == GamePhase::BiddingRound1 {
-                    self.state.trump = self.state.upcard.suit;
-                    self.do_dealer_pickup();
-                }
+                self.state.trump = self.state.upcard.suit;
+                let dealer = self.state.dealer as usize;
+                self.state.hands[dealer].insert(self.state.upcard);
+                self.state.phase = GamePhase::DealerDiscard;
+                self.state.lead_seat = (self.state.dealer + 1) % 4;
+            }
+            7..=10 => {
+                // GoAlone in Round 2 — call suit alone
+                let suit_idx = (bid_val - 7) as usize;
+                let suit = [Suit::Hearts, Suit::Diamonds, Suit::Clubs, Suit::Spades][suit_idx];
+                self.state.trump = suit;
+                self.state.alone = true;
+                let partner = (seat + 2) % 4;
+                self.state.sitting_out = Some(partner);
+                self.state.maker = seat;
                 self.state.phase = GamePhase::Playing;
                 self.state.lead_seat = (self.state.dealer + 1) % 4;
             }
@@ -283,17 +335,25 @@ impl Engine {
         }
     }
 
-    /// Dealer picks up upcard and discards the weakest card from hand.
-    fn do_dealer_pickup(&mut self) {
+    /// Dealer discards a specific card (called by UI after human chooses).
+    /// Transitions from DealerDiscard → Playing.
+    pub fn dealer_discard(&mut self, card_js: JsValue) {
+        let js_card: JsCard = serde_wasm_bindgen::from_value(card_js).unwrap();
+        let card = Card::new(
+            Suit::ALL[js_card.suit as usize],
+            Rank::ALL[js_card.rank as usize],
+        );
         let dealer = self.state.dealer as usize;
-        let upcard = self.state.upcard;
+        self.state.hands[dealer].remove(card);
+        self.state.phase = GamePhase::Playing;
+    }
+
+    /// AI chooses the weakest card to discard. Returns it as JsValue.
+    pub fn get_ai_discard(&self) -> JsValue {
+        let dealer = self.state.dealer as usize;
+        let hand = self.state.hands[dealer];
         let trump = self.state.trump;
 
-        // Add upcard to dealer's hand
-        self.state.hands[dealer].insert(upcard);
-
-        // Discard weakest card (lowest trick_power non-trump, or lowest trump)
-        let hand = self.state.hands[dealer];
         let mut weakest: Option<Card> = None;
         let mut weakest_power: u8 = u8::MAX;
         let mut weakest_is_trump = true;
@@ -315,13 +375,11 @@ impl Engine {
             }
         }
 
-        if let Some(discard) = weakest {
-            self.state.hands[dealer].remove(discard);
-        }
+        serde_wasm_bindgen::to_value(&card_to_js(weakest.unwrap())).unwrap()
     }
 
     /// Run PIMC evaluation for the current position.
-    pub fn evaluate_plays(&mut self, num_determinizations: u32, seed: u64) -> JsValue {
+    pub fn evaluate_plays(&self, num_determinizations: u32, seed: u64) -> JsValue {
         let result = pimc::evaluate_plays(&self.state, num_determinizations, seed);
         let js_result = JsPimcResult {
             evaluations: result.evaluations.iter().map(|e| JsEvalResult {
@@ -373,11 +431,22 @@ impl Engine {
     }
 
     /// Get the current trick cards as [{seat, card}, ...].
+    /// If a trick just completed, returns the completed trick snapshot instead.
     pub fn current_trick(&self) -> JsValue {
-        let trick: Vec<JsTrickCard> = self.state.current_trick.iter()
+        let source: &[TrickCard] = if !self.last_completed_trick.is_empty() {
+            &self.last_completed_trick
+        } else {
+            &self.state.current_trick
+        };
+        let trick: Vec<JsTrickCard> = source.iter()
             .map(|tc| JsTrickCard { seat: tc.seat, card: card_to_js(tc.card) })
             .collect();
         serde_wasm_bindgen::to_value(&trick).unwrap()
+    }
+
+    /// Clear the completed trick snapshot so the next syncState shows fresh state.
+    pub fn collect_trick(&mut self) {
+        self.last_completed_trick.clear();
     }
 
     /// Get trick scores [team0, team1].
@@ -415,9 +484,10 @@ impl Engine {
         self.state.trick_number
     }
 
-    /// Score the completed hand. Returns [maker_points, is_euchre, is_sweep].
-    pub fn score_hand(&self) -> JsValue {
+    /// Score the completed hand, apply to game scores. Returns [maker_points, is_euchre, is_sweep].
+    pub fn score_hand(&mut self) -> JsValue {
         let score = scoring::score_hand(&self.state);
+        self.state.scores = scoring::apply_score(self.state.scores, &score);
         let result = (score.points, score.is_euchre, score.is_sweep);
         serde_wasm_bindgen::to_value(&result).unwrap()
     }

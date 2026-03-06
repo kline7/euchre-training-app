@@ -55,6 +55,22 @@ const api = {
     engine.apply_bid(bidVal);
   },
 
+  dealerDiscard(card: { suit: number; rank: number }) {
+    engine.dealer_discard(card);
+  },
+
+  getAiDiscard() {
+    return engine.get_ai_discard();
+  },
+
+  collectTrick() {
+    engine.collect_trick();
+  },
+
+  hasCompletedTrick(): boolean {
+    return engine.has_completed_trick();
+  },
+
   evaluatePlays(numDeterminizations: number, seed: number) {
     return engine.evaluate_plays(numDeterminizations, BigInt(seed));
   },
@@ -89,6 +105,14 @@ const api = {
 
   maker(): number {
     return engine.maker();
+  },
+
+  isAlone(): boolean {
+    return engine.is_alone();
+  },
+
+  sittingOut(): number {
+    return engine.sitting_out();
   },
 
   trickNumber(): number {

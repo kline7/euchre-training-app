@@ -35,13 +35,17 @@ export const useSettings = create<SettingsStore>()(
 interface UIState {
   engineReady: boolean;
   thinking: boolean;
+  restartRequested: number;
   setEngineReady: (ready: boolean) => void;
   setThinking: (thinking: boolean) => void;
+  requestRestart: () => void;
 }
 
 export const useUI = create<UIState>((set) => ({
   engineReady: false,
   thinking: false,
+  restartRequested: 0,
   setEngineReady: (ready) => set({ engineReady: ready }),
   setThinking: (thinking) => set({ thinking: thinking }),
+  requestRestart: () => set((s) => ({ restartRequested: s.restartRequested + 1 })),
 }));
