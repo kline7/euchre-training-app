@@ -253,7 +253,7 @@ North American Euchre with stuck dealer and the no-trump-lead house rule:
 - **Deck**: 24 cards (9, 10, J, Q, K, A in each suit)
 - **Trump ranking**: Right Bower (J of trump) > Left Bower (J of same color) > A > K > Q > 10 > 9
 - **Bidding**: Round 1 — order up the upcard or pass. Round 2 — call any suit except the turned-down one, or pass. Stuck dealer must call
-- **Trump must be broken**: trump may not be LED until a trump card has been played (e.g. on a ruff). Exception: a hand holding only trump must lead it. Following suit or ruffing with trump is always allowed
+- **Trump must be broken** (configurable, on by default): trump may not be LED until a trump card has been played (e.g. on a ruff). Exception: a hand holding only trump must lead it. Following suit or ruffing with trump is always allowed. Toggle it off in Settings → House Rules for standard euchre (lead anything). The choice also sets your multiplayer style: matchmaking only pairs players who picked the same rule, and the party leader's setting applies to team games
 - **Going alone**: Skip your partner. Win all 5 tricks for 4 points
 - **Scoring**: 3-4 tricks = 1 point. All 5 tricks = 2 points. Euchre = 2 points to defenders. First to 10 wins
 

@@ -20,8 +20,22 @@ import {
   type TeamLeaderboardRow,
 } from '../multiplayer/social';
 import { ensureConnection, closeConnection, useMp, mp } from '../multiplayer/connection';
+import { useSettings } from '../stores/store';
 import DivisionBadge from '../components/DivisionBadge';
 import PresenceBar from '../components/PresenceBar';
+
+function RuleStyleNote() {
+  const broken = useSettings((s) => s.trumpMustBeBroken);
+  return (
+    <p style={{ fontSize: '0.72rem', color: '#9aa4b2', textAlign: 'center', margin: '6px 0 0' }}>
+      Style:{' '}
+      <span style={{ color: broken ? '#f1c40f' : '#5dade2', fontWeight: 600 }}>
+        {broken ? 'Broken trump (house rule)' : 'Open trump (standard)'}
+      </span>{' '}
+      — you'll match with same-style players. Change it in Settings.
+    </p>
+  );
+}
 
 const panel: React.CSSProperties = {
   background: 'rgba(0, 0, 0, 0.55)',
@@ -235,20 +249,23 @@ function Lobby() {
           </p>
         )}
         {!party && (
-          <button
-            onClick={() => navigate('/online')}
-            style={{
-              ...buttonStyle,
-              background: '#27ae60',
-              color: '#fff',
-              width: '100%',
-              marginTop: 16,
-              padding: '14px 18px',
-              fontSize: '1.05rem',
-            }}
-          >
-            Find Match (Solo)
-          </button>
+          <>
+            <button
+              onClick={() => navigate('/online')}
+              style={{
+                ...buttonStyle,
+                background: '#27ae60',
+                color: '#fff',
+                width: '100%',
+                marginTop: 16,
+                padding: '14px 18px',
+                fontSize: '1.05rem',
+              }}
+            >
+              Find Match (Solo)
+            </button>
+            <RuleStyleNote />
+          </>
         )}
       </div>
 
@@ -356,6 +373,7 @@ function PartyPanel() {
               <option value={3}>Expert</option>
             </select>
           </div>
+          <RuleStyleNote />
         </div>
       )}
     </div>

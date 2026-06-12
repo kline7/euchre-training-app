@@ -108,8 +108,8 @@ export class MatchClient {
     }
   }
 
-  joinQueue() {
-    this.sendRaw({ type: 'queue_join' });
+  joinQueue(trumpMustBeBroken = true) {
+    this.sendRaw({ type: 'queue_join', trumpMustBeBroken });
   }
 
   leaveQueue() {
@@ -132,16 +132,16 @@ export class MatchClient {
     this.sendRaw({ type: 'party_leave' });
   }
 
-  teamQueueJoin() {
-    this.sendRaw({ type: 'team_queue_join' });
+  teamQueueJoin(trumpMustBeBroken = true) {
+    this.sendRaw({ type: 'team_queue_join', trumpMustBeBroken });
   }
 
   teamQueueLeave() {
     this.sendRaw({ type: 'team_queue_leave' });
   }
 
-  teamPlayAi(difficulty: number) {
-    this.sendRaw({ type: 'team_play_ai', difficulty });
+  teamPlayAi(difficulty: number, trumpMustBeBroken = true) {
+    this.sendRaw({ type: 'team_play_ai', difficulty, trumpMustBeBroken });
   }
 
   close() {

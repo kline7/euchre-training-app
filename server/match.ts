@@ -34,6 +34,8 @@ export interface MatchOptions {
   teamIds?: { team0: number; team1: number };
   /** AI difficulty (0-3) for bot seats and auto-play. Defaults to expert. */
   aiDifficulty?: number;
+  /** House rule: trump may not be led until broken (default true). */
+  trumpMustBeBroken?: boolean;
 }
 
 export interface BidLogEntry {
@@ -68,6 +70,7 @@ export type SeatMessage =
       bidLog: BidLogEntry[];
       turnDeadline: number | null;
       paused: boolean;
+      trumpMustBeBroken: boolean;
     }
   | {
       type: 'hand_result';
@@ -144,6 +147,7 @@ export class MatchSession {
   private turnDeadline: number | null = null;
   status: 'active' | 'complete' | 'abandoned' = 'active';
   readonly mode: MatchMode;
+  readonly trumpMustBeBroken: boolean;
   private teamIds: { team0: number; team1: number } | null;
   private aiDifficulty: number;
   /** Called when the match reaches a terminal state (for registry cleanup). */
@@ -157,6 +161,7 @@ export class MatchSession {
   ) {
     if (players.length !== 4) throw new Error('a match requires exactly 4 players');
     this.mode = options.mode;
+    this.trumpMustBeBroken = options.trumpMustBeBroken ?? true;
     this.teamIds = options.teamIds ?? null;
     this.aiDifficulty = options.aiDifficulty ?? AUTOPLAY_DIFFICULTY;
     if (this.mode === 'team_rated' && !this.teamIds) {
@@ -196,6 +201,7 @@ export class MatchSession {
       difficulty: this.aiDifficulty,
       dealer: this.dealer,
       scores: this.scores,
+      trump_must_be_broken: this.trumpMustBeBroken,
     });
     this.recordAction(null, { type: 'deal', seed, dealer: this.dealer, hand: this.handNumber });
     this.broadcastState();
@@ -656,6 +662,7 @@ export class MatchSession {
       bidLog: this.bidLog,
       turnDeadline: this.turnDeadline,
       paused,
+      trumpMustBeBroken: this.trumpMustBeBroken,
     });
   }
 

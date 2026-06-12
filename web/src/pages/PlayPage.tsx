@@ -306,6 +306,7 @@ export default function PlayPage({ active = true }: PlayPageProps) {
   const setThinking = useUI((s) => s.setThinking);
   const restartRequested = useUI((s) => s.restartRequested);
   const difficulty = useSettings((s) => s.difficulty);
+  const trumpMustBeBroken = useSettings((s) => s.trumpMustBeBroken);
 
   const [game, dispatch] = useReducer(gameReducer, initialState);
   const [engineError, setEngineError] = useState<string | null>(null);
@@ -558,7 +559,13 @@ export default function PlayPage({ active = true }: PlayPageProps) {
     try {
       const engine = getEngine();
       const seed = Math.floor(Math.random() * 2 ** 32);
-      await engine.init({ seed, difficulty, dealer: 0, scores: [0, 0] });
+      await engine.init({
+        seed,
+        difficulty,
+        dealer: 0,
+        scores: [0, 0],
+        trump_must_be_broken: trumpMustBeBroken,
+      });
 
       beginGameRecord(seed); // server record is created in the background (B4)
       await startRecording(seed);
@@ -576,7 +583,7 @@ export default function PlayPage({ active = true }: PlayPageProps) {
       restartingRef.current = false;
       releaseLoop(token);
     }
-  }, [difficulty, acquireLoop, releaseLoop, beginGameRecord, syncState, startRecording, setEngineReady]);
+  }, [difficulty, trumpMustBeBroken, acquireLoop, releaseLoop, beginGameRecord, syncState, startRecording, setEngineReady]);
 
   /**
    * Persist a finished hand. All values are passed in explicitly, fetched
@@ -909,6 +916,7 @@ export default function PlayPage({ active = true }: PlayPageProps) {
         difficulty,
         dealer: newDealer,
         scores: game.scores,
+        trump_must_be_broken: trumpMustBeBroken,
       });
       bidLogRef.current = [];
       // Per-hand stats reset; gameWpc intentionally carries across hands (B11)
@@ -925,7 +933,7 @@ export default function PlayPage({ active = true }: PlayPageProps) {
     } finally {
       releaseLoop(token);
     }
-  }, [game.dealer, game.scores, difficulty, acquireLoop, releaseLoop, syncState, startRecording]);
+  }, [game.dealer, game.scores, difficulty, trumpMustBeBroken, acquireLoop, releaseLoop, syncState, startRecording]);
 
   const handleNewGame = useCallback(async () => {
     // B8: never silently ignore — cancel any in-flight AI loop and proceed.
@@ -937,7 +945,13 @@ export default function PlayPage({ active = true }: PlayPageProps) {
     try {
       const engine = getEngine();
       const seed = Math.floor(Math.random() * 2 ** 32);
-      await engine.init({ seed, difficulty, dealer: 0, scores: [0, 0] });
+      await engine.init({
+        seed,
+        difficulty,
+        dealer: 0,
+        scores: [0, 0],
+        trump_must_be_broken: trumpMustBeBroken,
+      });
 
       dispatch({ type: 'RESET' });
       bidLogRef.current = [];
@@ -953,7 +967,7 @@ export default function PlayPage({ active = true }: PlayPageProps) {
       restartingRef.current = false;
       releaseLoop(token);
     }
-  }, [difficulty, acquireLoop, releaseLoop, beginGameRecord, syncState, startRecording]);
+  }, [difficulty, trumpMustBeBroken, acquireLoop, releaseLoop, beginGameRecord, syncState, startRecording]);
 
   // Recover from a poisoned WASM instance: terminate the worker, then init fresh (B5)
   const handleErrorRecovery = useCallback(() => {

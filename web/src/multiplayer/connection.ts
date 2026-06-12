@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { MatchClient, type ConnectionStatus } from './client';
 import { useAuth, refreshProfile } from './auth';
+import { useSettings } from '../stores/store';
 import type {
   GameOverMsg,
   HandResultMsg,
@@ -144,8 +145,13 @@ export function closeConnection() {
 
 // --- Convenience actions ---
 
+/** The player's preferred lead rule (Settings → House Rules). */
+function preferredRule(): boolean {
+  return useSettings.getState().trumpMustBeBroken;
+}
+
 export const mp = {
-  joinQueue: () => ensureConnection()?.joinQueue(),
+  joinQueue: () => ensureConnection()?.joinQueue(preferredRule()),
   leaveQueue: () => {
     const c = ensureConnection();
     if (useMp.getState().teamQueue) c?.teamQueueLeave();
@@ -162,8 +168,8 @@ export const mp = {
     useMp.setState({ party: null });
     ensureConnection()?.partyLeave();
   },
-  teamQueueJoin: () => ensureConnection()?.teamQueueJoin(),
-  teamPlayAi: (difficulty: number) => ensureConnection()?.teamPlayAi(difficulty),
+  teamQueueJoin: () => ensureConnection()?.teamQueueJoin(preferredRule()),
+  teamPlayAi: (difficulty: number) => ensureConnection()?.teamPlayAi(difficulty, preferredRule()),
   clearNotice: () => useMp.setState({ notice: null }),
   resetForRequeue: () =>
     useMp.setState({ match: null, handResult: null, gameOver: null, queue: null }),

@@ -142,6 +142,44 @@ describe('team matchmaking', () => {
     expect(matched.map((m) => m.seat).sort()).toEqual([0, 2]);
   });
 
+  it('duos with different lead-rule styles are not paired; same style is', () => {
+    const { mm, matched } = makeMatchmaker();
+    cleanup.push(() => {
+      for (const m of mm.matches.values()) m.abandon();
+      mm.stop();
+    });
+
+    const houseDuo = makeDuo(1200);
+    const standardDuo = makeDuo(1200);
+    mm.joinTeamQueue(houseDuo.partyId, houseDuo.users, true);
+    mm.joinTeamQueue(standardDuo.partyId, standardDuo.users, false);
+    expect(matched).toHaveLength(0); // identical elo, different style
+
+    const standardDuo2 = makeDuo(1200);
+    mm.joinTeamQueue(standardDuo2.partyId, standardDuo2.users, false);
+    expect(matched).toHaveLength(4); // the two standard duos matched
+    const session = mm.matches.get(matched[0].matchId)!;
+    expect(session.trumpMustBeBroken).toBe(false);
+    expect(mm.inTeamQueue(houseDuo.partyId)).toBe(true); // house duo still waiting
+  });
+
+  it('team-vs-AI matches carry the chosen lead rule into the match state', () => {
+    const { mm, matched, messages } = makeMatchmaker();
+    cleanup.push(() => {
+      for (const m of mm.matches.values()) m.abandon();
+      mm.stop();
+    });
+
+    const duo = makeDuo();
+    mm.startTeamVsAi(duo.users, 2, false);
+    const session = mm.matches.get(matched[0].matchId)!;
+    expect(session.trumpMustBeBroken).toBe(false);
+
+    // Every state broadcast tells clients which rule is active
+    const state = messages.find((m) => m.msg.type === 'state');
+    expect(state && state.msg.type === 'state' && state.msg.trumpMustBeBroken).toBe(false);
+  });
+
   it('cannot queue as a team while a member is in a match', () => {
     const { mm } = makeMatchmaker();
     cleanup.push(() => {

@@ -57,12 +57,20 @@ pub struct JsHandAnalysis {
     pub worst_indices: Vec<usize>,
 }
 
+fn default_true() -> bool {
+    true
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct JsGameConfig {
     pub seed: u64,
     pub difficulty: u8, // 0-3
     pub dealer: u8,
     pub scores: [u8; 2],
+    /// House rule: trump may not be led until broken. Defaults to true;
+    /// pass false for standard euchre (lead anything).
+    #[serde(default = "default_true")]
+    pub trump_must_be_broken: bool,
 }
 
 // --- Conversion helpers ---
@@ -159,8 +167,13 @@ impl Engine {
 
         console_error_panic_hook::set_once();
 
-        let core = CoreEngine::new(config.seed, config.dealer, config.scores)
-            .map_err(|e| JsError::new(&e.to_string()))?;
+        let core = CoreEngine::with_rules(
+            config.seed,
+            config.dealer,
+            config.scores,
+            config.trump_must_be_broken,
+        )
+        .map_err(|e| JsError::new(&e.to_string()))?;
 
         Ok(Engine {
             core,
@@ -262,6 +275,11 @@ impl Engine {
             Some(seat) => seat as i8,
             None => -1,
         }
+    }
+
+    /// Whether the trump-must-be-broken house rule is active for this hand.
+    pub fn trump_must_be_broken(&self) -> bool {
+        self.core.state.trump_must_be_broken
     }
 
     /// The turned-down suit from round 1 (-1 if still in round 1).

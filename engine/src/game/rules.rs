@@ -8,10 +8,15 @@ pub fn legal_plays(hand: CardSet, state: &GameState) -> CardSet {
         return CardSet::EMPTY;
     }
 
-    // Leading: trump may not be led until trump has been "broken" — i.e.
-    // some trump card has already been played face-up this hand (normally
-    // by a ruff). Exception: a hand holding only trump must lead it.
+    // Leading. Under the (default) house rule, trump may not be led until
+    // trump has been "broken" — i.e. some trump card has already been played
+    // face-up this hand (normally by a ruff). Exception: a hand holding only
+    // trump must lead it. With the rule disabled (standard euchre), any card
+    // may be led at any time.
     if state.current_trick.is_empty() {
+        if !state.trump_must_be_broken {
+            return hand;
+        }
         let trump_mask = CardSet::effective_suit_mask(state.trump, state.trump);
         let trump_broken = !state.played.intersection(trump_mask).is_empty();
         if trump_broken {
@@ -314,6 +319,28 @@ mod tests {
         assert!(legal.contains(make_card(Hearts, Ace)));
         assert!(legal.contains(make_card(Hearts, King)));
         assert!(legal.contains(make_card(Clubs, Nine)));
+    }
+
+    #[test]
+    fn standard_rule_allows_trump_leads_anytime() {
+        // With the house rule disabled, leading trump is always legal
+        let mut hand = CardSet::EMPTY;
+        hand.insert(make_card(Hearts, Ace));  // trump
+        hand.insert(make_card(Clubs, Nine));  // non-trump
+
+        let mut state = GameState::new_hand(
+            [hand, CardSet::EMPTY, CardSet::EMPTY, CardSet::EMPTY],
+            make_card(Hearts, Nine),
+            0,
+            [0, 0],
+        );
+        state.trump = Hearts;
+        state.trump_must_be_broken = false;
+
+        // No trump played yet — but standard rules allow the trump lead
+        let legal = legal_plays(hand, &state);
+        assert_eq!(legal, hand);
+        assert!(legal.contains(make_card(Hearts, Ace)));
     }
 
     #[test]

@@ -65,6 +65,8 @@ interface EngineConfig {
   difficulty: number;
   dealer: number;
   scores: [number, number];
+  /** House rule: trump may not be led until broken (default true). */
+  trump_must_be_broken?: boolean;
 }
 
 export class HandEngine {

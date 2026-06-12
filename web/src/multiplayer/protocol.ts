@@ -73,6 +73,8 @@ export interface MatchState {
   bidLog: BidLogEntry[];
   turnDeadline: number | null;
   paused: boolean;
+  /** Lead rule for this match: true = broken-trump house rule. */
+  trumpMustBeBroken: boolean;
 }
 
 export interface HandResultMsg {
@@ -131,13 +133,13 @@ export type ClientAction =
 
 export type ClientMessage =
   | { type: 'auth'; token: string }
-  | { type: 'queue_join' }
+  | { type: 'queue_join'; trumpMustBeBroken?: boolean }
   | { type: 'queue_leave' }
   | { type: 'action'; action: ClientAction }
   | { type: 'party_invite'; username: string }
   | { type: 'party_respond'; accept: boolean }
   | { type: 'party_leave' }
-  | { type: 'team_queue_join' }
+  | { type: 'team_queue_join'; trumpMustBeBroken?: boolean }
   | { type: 'team_queue_leave' }
-  | { type: 'team_play_ai'; difficulty: number }
+  | { type: 'team_play_ai'; difficulty: number; trumpMustBeBroken?: boolean }
   | { type: 'ping' };

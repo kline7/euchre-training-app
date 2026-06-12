@@ -117,6 +117,11 @@ pub struct GameState {
     // Tracking for AI: which suits each player is known void in
     pub known_voids: [CardSet; 4], // bits = suits voided (not cards — we reuse u32 for 4 suit bits)
 
+    // House rule: when true (default), trump may not be LED until a trump
+    // card has been played face-up this hand. When false, any card may be
+    // led at any time (standard euchre).
+    pub trump_must_be_broken: bool,
+
     // Cards that have been played face-up this hand (publicly visible info).
     pub played: CardSet,
 
@@ -143,6 +148,7 @@ impl GameState {
             tricks_won: [0, 0],
             scores,
             known_voids: [CardSet::EMPTY; 4],
+            trump_must_be_broken: true,
             played: CardSet::EMPTY,
             discard: None,
         }

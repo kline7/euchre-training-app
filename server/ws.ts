@@ -27,16 +27,21 @@ import { DEFAULT_TIMINGS } from './match.js';
 
 type ClientMessage =
   | { type: 'auth'; token: string }
-  | { type: 'queue_join' }
+  | { type: 'queue_join'; trumpMustBeBroken?: boolean }
   | { type: 'queue_leave' }
   | { type: 'action'; action: ClientAction }
   | { type: 'party_invite'; username: string }
   | { type: 'party_respond'; accept: boolean }
   | { type: 'party_leave' }
-  | { type: 'team_queue_join' }
+  | { type: 'team_queue_join'; trumpMustBeBroken?: boolean }
   | { type: 'team_queue_leave' }
-  | { type: 'team_play_ai'; difficulty: number }
+  | { type: 'team_play_ai'; difficulty: number; trumpMustBeBroken?: boolean }
   | { type: 'ping' };
+
+/** Coerce the optional rule flag (default: the broken-trump house rule). */
+function ruleFlag(value: unknown): boolean {
+  return value === false ? false : true;
+}
 
 interface Connection {
   userId: number;
@@ -173,7 +178,11 @@ export function setupWebSocket(app: Hono, timings: MatchTimings = DEFAULT_TIMING
                 );
                 return;
               }
-              const { error } = matchmaker.join(authed.userId, authed.username);
+              const { error } = matchmaker.join(
+                authed.userId,
+                authed.username,
+                ruleFlag(msg.trumpMustBeBroken),
+              );
               if (error) {
                 ws.send(JSON.stringify({ type: 'error', message: error }));
                 // If they're "already in a match", re-attach them to it
@@ -224,7 +233,11 @@ export function setupWebSocket(app: Hono, timings: MatchTimings = DEFAULT_TIMING
                 ws.send(JSON.stringify({ type: 'error', message: 'only the party leader can start the queue' }));
                 return;
               }
-              const { error } = matchmaker.joinTeamQueue(duo.partyId, duo.users);
+              const { error } = matchmaker.joinTeamQueue(
+                duo.partyId,
+                duo.users,
+                ruleFlag(msg.trumpMustBeBroken),
+              );
               if (error) ws.send(JSON.stringify({ type: 'error', message: error }));
               else {
                 for (const u of duo.users) sendTo(u.userId, { type: 'team_queue_joined' });
@@ -254,7 +267,11 @@ export function setupWebSocket(app: Hono, timings: MatchTimings = DEFAULT_TIMING
                   ? msg.difficulty
                   : 3;
               matchmaker.leaveTeamQueue(duo.partyId);
-              const { error } = matchmaker.startTeamVsAi(duo.users, difficulty);
+              const { error } = matchmaker.startTeamVsAi(
+                duo.users,
+                difficulty,
+                ruleFlag(msg.trumpMustBeBroken),
+              );
               if (error) ws.send(JSON.stringify({ type: 'error', message: error }));
               break;
             }

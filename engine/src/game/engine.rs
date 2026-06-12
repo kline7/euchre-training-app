@@ -64,8 +64,20 @@ pub struct CoreEngine {
 }
 
 impl CoreEngine {
-    /// Create a new engine and deal a hand.
+    /// Create a new engine and deal a hand with the default house rules
+    /// (trump leads require broken trump).
     pub fn new(seed: u64, dealer: Seat, scores: [u8; 2]) -> Result<CoreEngine, EngineError> {
+        Self::with_rules(seed, dealer, scores, true)
+    }
+
+    /// Create a new engine with an explicit trump-lead rule:
+    /// `trump_must_be_broken = false` plays standard euchre (lead anything).
+    pub fn with_rules(
+        seed: u64,
+        dealer: Seat,
+        scores: [u8; 2],
+        trump_must_be_broken: bool,
+    ) -> Result<CoreEngine, EngineError> {
         if dealer > 3 {
             return Err(EngineError::InvalidInput("dealer seat must be 0-3"));
         }
@@ -75,7 +87,8 @@ impl CoreEngine {
         let mut rng = ChaCha20Rng::seed_from_u64(seed);
         let hands = deal_hands(&mut rng);
         let upcard = pick_upcard(&hands, &mut rng);
-        let state = GameState::new_hand(hands, upcard, dealer, scores);
+        let mut state = GameState::new_hand(hands, upcard, dealer, scores);
+        state.trump_must_be_broken = trump_must_be_broken;
 
         Ok(CoreEngine {
             state,
@@ -555,6 +568,16 @@ mod tests {
         }
         // A legal card is always accepted
         engine.play_card(legal.iter().next().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn with_rules_standard_allows_trump_leads() {
+        let mut engine = CoreEngine::with_rules(42, 0, [0, 0], false).unwrap();
+        order_up_and_discard(&mut engine);
+        let leader = engine.state.next_to_play();
+        let hand = engine.state.hands[leader as usize];
+        // Standard euchre: every card is a legal lead, trump included
+        assert_eq!(rules::legal_plays(hand, &engine.state), hand);
     }
 
     #[test]

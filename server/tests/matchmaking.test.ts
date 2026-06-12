@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { bandFor, compatible, balanceTeams, findGroup, type QueueEntry } from '../matchmaking.js';
 
-function entry(userId: number, elo: number, joinedAt = 0): QueueEntry {
-  return { userId, username: `u${userId}`, elo, joinedAt };
+function entry(userId: number, elo: number, joinedAt = 0, trumpMustBeBroken = true): QueueEntry {
+  return { userId, username: `u${userId}`, elo, joinedAt, trumpMustBeBroken };
 }
 
 describe('bandFor', () => {
@@ -29,6 +29,48 @@ describe('compatible', () => {
     expect(compatible(fresh, waiting, 15_000)).toBe(false);
     // after 10s its band is 200 — both accept
     expect(compatible(fresh, waiting, 20_000)).toBe(true);
+  });
+});
+
+describe('rule-style matchmaking', () => {
+  it('players who chose different lead rules are never compatible', () => {
+    const houseRule = entry(1, 1200, 0, true);
+    const standard = entry(2, 1200, 0, false);
+    expect(compatible(houseRule, standard, 0)).toBe(false);
+    // ...no matter how long they wait
+    expect(compatible(houseRule, standard, 10_000_000)).toBe(false);
+  });
+
+  it('two of each style never form a match; four of one style do', () => {
+    const mixed = [
+      entry(1, 1200, 0, true),
+      entry(2, 1200, 0, true),
+      entry(3, 1200, 0, false),
+      entry(4, 1200, 0, false),
+    ];
+    expect(findGroup(mixed, 0)).toBeNull();
+
+    const standardOnly = [
+      entry(1, 1200, 0, false),
+      entry(2, 1200, 0, false),
+      entry(3, 1200, 0, false),
+      entry(4, 1200, 0, false),
+    ];
+    const group = findGroup(standardOnly, 0);
+    expect(group).toHaveLength(4);
+    expect(group!.every((e) => !e.trumpMustBeBroken)).toBe(true);
+  });
+
+  it('with 5 in queue, the 4 sharing a style match and the odd one waits', () => {
+    const queue = [
+      entry(1, 1200, 0, true),
+      entry(2, 1200, 0, false),
+      entry(3, 1200, 0, true),
+      entry(4, 1200, 0, true),
+      entry(5, 1200, 0, true),
+    ];
+    const group = findGroup(queue, 0)!;
+    expect(group.map((e) => e.userId).sort()).toEqual([1, 3, 4, 5]);
   });
 });
 

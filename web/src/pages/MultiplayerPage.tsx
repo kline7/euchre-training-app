@@ -6,7 +6,16 @@ import DivisionBadge from '../components/DivisionBadge';
 import PresenceBar from '../components/PresenceBar';
 import { useAuth } from '../multiplayer/auth';
 import { ensureConnection, useMp, mp } from '../multiplayer/connection';
+import { useSettings } from '../stores/store';
 import type { CardData, MatchState } from '../multiplayer/protocol';
+
+function RuleLabel({ broken }: { broken: boolean }) {
+  return (
+    <span style={{ color: broken ? '#f1c40f' : '#5dade2', fontWeight: 600 }}>
+      {broken ? 'Broken trump (house rule)' : 'Open trump (standard)'}
+    </span>
+  );
+}
 
 const SUIT_SYMBOLS = ['♥', '♦', '♣', '♠'];
 const SUIT_NAMES = ['Hearts', 'Diamonds', 'Clubs', 'Spades'];
@@ -45,6 +54,7 @@ export default function MultiplayerPage() {
   const token = useAuth((s) => s.token);
   const profile = useAuth((s) => s.profile);
   const state = useMp();
+  const ruleSetting = useSettings((s) => s.trumpMustBeBroken);
   const [now, setNow] = useState(Date.now());
   const queuedOnMount = useRef(false);
 
@@ -177,6 +187,9 @@ export default function MultiplayerPage() {
               ? `In queue — ${Math.floor(state.queue.waitedMs / 1000)}s. The rating range widens as you wait.`
               : 'Joining the queue…'}
         </p>
+        <p style={{ color: '#9aa4b2', fontSize: '0.8rem' }}>
+          Style: <RuleLabel broken={ruleSetting} /> — matched with same-style players (change in Settings)
+        </p>
         <div className="spinner" style={{ margin: '24px auto' }} />
         <PresenceBar />
         <button onClick={leaveToLobby} style={{ ...btn('#7f8c8d'), marginTop: 12 }}>Cancel</button>
@@ -296,8 +309,11 @@ export default function MultiplayerPage() {
         <div style={{ textAlign: 'center', color: '#9aa4b2', fontSize: '0.8rem' }}>…</div>
       )}
 
-      <div style={{ textAlign: 'center', marginTop: 4 }}>
+      <div style={{ textAlign: 'center', marginTop: 4, display: 'flex', justifyContent: 'center', gap: 12, fontSize: '0.75rem' }}>
         <DivisionBadge division={profile.division} compact />
+        <span style={{ color: '#9aa4b2' }}>
+          <RuleLabel broken={match.trumpMustBeBroken} />
+        </span>
       </div>
     </div>
   );

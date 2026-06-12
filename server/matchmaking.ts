@@ -14,6 +14,8 @@ export interface QueueEntry {
   username: string;
   elo: number;
   joinedAt: number;
+  /** Chosen lead rule: true = broken-trump house rule, false = standard. */
+  trumpMustBeBroken: boolean;
 }
 
 /** Initial half-width of the acceptable Elo band. */
@@ -29,8 +31,10 @@ export function bandFor(entry: QueueEntry, now: number): number {
   return Math.min(MAX_BAND, BASE_BAND + BAND_STEP * Math.floor(waited / WIDEN_INTERVAL_MS));
 }
 
-/** Two players are compatible when each falls inside the other's band. */
+/** Two players are compatible when they chose the same rule style and each
+ * falls inside the other's elo band. */
 export function compatible(a: QueueEntry, b: QueueEntry, now: number): boolean {
+  if (a.trumpMustBeBroken !== b.trumpMustBeBroken) return false;
   const gap = Math.abs(a.elo - b.elo);
   return gap <= bandFor(a, now) && gap <= bandFor(b, now);
 }
@@ -85,6 +89,8 @@ export interface TeamQueueEntry {
   elo: number;
   users: { userId: number; username: string }[];
   joinedAt: number;
+  /** Chosen lead rule: true = broken-trump house rule, false = standard. */
+  trumpMustBeBroken: boolean;
 }
 
 export class Matchmaker {
@@ -113,7 +119,7 @@ export class Matchmaker {
     this.timer = null;
   }
 
-  join(userId: number, username: string): { error?: string } {
+  join(userId: number, username: string, trumpMustBeBroken = true): { error?: string } {
     if (this.matchByUser.has(userId)) {
       return { error: 'already in a match' };
     }
@@ -126,6 +132,7 @@ export class Matchmaker {
       username,
       elo: rating?.elo ?? 1200,
       joinedAt: Date.now(),
+      trumpMustBeBroken,
     });
     this.tick();
     return {};
@@ -146,6 +153,7 @@ export class Matchmaker {
   joinTeamQueue(
     partyId: string,
     users: { userId: number; username: string }[],
+    trumpMustBeBroken = true,
   ): { error?: string } {
     if (users.length !== 2) return { error: 'a team needs exactly 2 players' };
     for (const u of users) {
@@ -160,6 +168,7 @@ export class Matchmaker {
       elo: team.elo,
       users,
       joinedAt: Date.now(),
+      trumpMustBeBroken,
     });
     this.tick();
     return {};
@@ -184,6 +193,7 @@ export class Matchmaker {
   startTeamVsAi(
     users: { userId: number; username: string }[],
     difficulty: number,
+    trumpMustBeBroken = true,
   ): { error?: string } {
     if (users.length !== 2) return { error: 'a team needs exactly 2 players' };
     for (const u of users) {
@@ -199,7 +209,11 @@ export class Matchmaker {
       { userId: users[1].userId, username: users[1].username, elo: humanElos[1], seat: 2 },
       { userId: -2, username: AI_BOT_NAMES[1], elo: team.elo, seat: 3, isBot: true },
     ];
-    this.launchMatch(players, { mode: 'team_vs_ai' as const, aiDifficulty: difficulty });
+    this.launchMatch(players, {
+      mode: 'team_vs_ai' as const,
+      aiDifficulty: difficulty,
+      trumpMustBeBroken,
+    });
     return {};
   }
 
@@ -240,6 +254,7 @@ export class Matchmaker {
       for (let j = i + 1; j < entries.length; j++) {
         const a = entries[i];
         const b = entries[j];
+        if (a.trumpMustBeBroken !== b.trumpMustBeBroken) continue; // same style only
         const gap = Math.abs(a.elo - b.elo);
         const bandA = bandFor({ ...a, userId: 0, username: '' }, now);
         const bandB = bandFor({ ...b, userId: 0, username: '' }, now);
@@ -258,7 +273,8 @@ export class Matchmaker {
         elo: entry.elo,
         seat,
       })),
-      { mode: 'solo_rated' as const },
+      // compatible() guarantees the whole group chose the same style
+      { mode: 'solo_rated' as const, trumpMustBeBroken: group[0].trumpMustBeBroken },
     );
   }
 
@@ -273,7 +289,11 @@ export class Matchmaker {
         { userId: a.users[1].userId, username: a.users[1].username, elo: eloOf(a.users[1].userId), seat: 2 },
         { userId: b.users[1].userId, username: b.users[1].username, elo: eloOf(b.users[1].userId), seat: 3 },
       ],
-      { mode: 'team_rated' as const, teamIds: { team0: a.teamId, team1: b.teamId } },
+      {
+        mode: 'team_rated' as const,
+        teamIds: { team0: a.teamId, team1: b.teamId },
+        trumpMustBeBroken: a.trumpMustBeBroken, // pairs always share a style
+      },
     );
   }
 
