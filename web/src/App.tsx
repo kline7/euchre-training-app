@@ -4,6 +4,8 @@ import PlayPage from './pages/PlayPage';
 import ReviewPage from './pages/ReviewPage';
 import SettingsPage from './pages/SettingsPage';
 import HistoryPage from './pages/HistoryPage';
+import LobbyPage from './pages/LobbyPage';
+import MultiplayerPage from './pages/MultiplayerPage';
 import WasmErrorBoundary from './components/WasmErrorBoundary';
 import { useUI } from './stores/store';
 import './App.css';
@@ -56,7 +58,7 @@ function PersistentPlayPage() {
   const [isPlay] = useRoute('/');
   return (
     <div style={{ display: isPlay ? undefined : 'none' }}>
-      <PlayPage />
+      <PlayPage active={isPlay} />
     </div>
   );
 }
@@ -67,6 +69,7 @@ function App() {
       <div className="app">
         <nav className="nav">
           <PlayNavItem />
+          <Link href="/lobby">Online</Link>
           <Link href="/history">History</Link>
           <Link href="/settings">Settings</Link>
         </nav>
@@ -80,6 +83,8 @@ function App() {
             <Route path="/history" component={HistoryPage} />
             <Route path="/review/:gameId" component={ReviewPage} />
             <Route path="/settings" component={SettingsPage} />
+            <Route path="/lobby" component={LobbyPage} />
+            <Route path="/online" component={MultiplayerPage} />
           </Switch>
         </main>
       </div>

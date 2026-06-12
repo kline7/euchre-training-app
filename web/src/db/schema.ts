@@ -1,5 +1,3 @@
-import Dexie, { type EntityTable } from 'dexie';
-
 export interface CardRecord {
   suit: number;
   rank: number;
@@ -26,11 +24,19 @@ export interface HandRecord {
   deal: CardRecord[][];
   bids: BidRecord[];
   plays: PlayRecord[];
+  /** True if the maker played alone (3 plays per trick). Absent in old records. */
+  alone?: boolean;
   result: HandResult;
 }
 
 export interface DecisionRecord {
   trickNumber: number;
+  /**
+   * Index within HandRecord.plays of the play this decision corresponds to.
+   * Decisions exist only for human plays with >1 legal option.
+   * Absent in records saved before this field existed.
+   */
+  playIndex?: number;
   played: CardRecord;
   optimal: CardRecord;
   wpc: number;
@@ -45,28 +51,11 @@ export interface HandAnalysisRecord {
 }
 
 export interface GameRecord {
-  id?: number;
-  createdAt: Date;
+  id: number;
+  createdAt: string;
   seed: number;
   difficulty: number;
   hands: HandRecord[];
   finalScore: [number, number];
   analysis?: HandAnalysisRecord[];
 }
-
-export interface SettingRecord {
-  key: string;
-  value: string;
-}
-
-const db = new Dexie('euchre-trainer') as Dexie & {
-  games: EntityTable<GameRecord, 'id'>;
-  settings: EntityTable<SettingRecord, 'key'>;
-};
-
-db.version(1).stores({
-  games: '++id, createdAt',
-  settings: 'key',
-});
-
-export { db };

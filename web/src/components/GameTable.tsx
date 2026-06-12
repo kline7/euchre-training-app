@@ -29,6 +29,7 @@ interface GameTableProps {
   humanSeat: number;           // which seat is the human (0)
   onPlayCard: (card: CardData) => void;
   thinking: boolean;
+  active?: boolean;            // when false (page hidden), keyboard input is ignored
   upcard?: CardData | null;
   phase?: string;
   sittingOut?: number;         // seat sitting out (-1 or undefined = none)
@@ -65,6 +66,7 @@ export default function GameTable({
   humanSeat,
   onPlayCard,
   thinking,
+  active = true,
   upcard,
   phase,
   sittingOut,
@@ -100,9 +102,12 @@ export default function GameTable({
   }, [playableIndices, selectedIdx, humanHand, onPlayCard]);
 
   useEffect(() => {
+    // Don't bind global keys while the page is hidden (PersistentPlayPage
+    // keeps PlayPage mounted with display:none on other routes).
+    if (!active) return;
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleKeyDown]);
+  }, [handleKeyDown, active]);
 
   return (
     <div className="game-table">

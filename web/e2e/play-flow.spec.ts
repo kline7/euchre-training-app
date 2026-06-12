@@ -7,8 +7,8 @@ test.describe('Play Flow', () => {
   test('game initializes and shows game table or bidding', async ({ page }) => {
     await page.goto('/');
 
-    // First: loading state should appear quickly
-    await expect(page.locator('text=Loading engine')).toBeVisible({ timeout: 5_000 });
+    // Start the game from the start screen
+    await page.click('button:has-text("Start Game")');
 
     // Then: wait for WASM to load and game to start (may take a while in parallel)
     await expect(page.locator('.game-table')).toBeVisible({ timeout: 30_000 });
@@ -25,6 +25,7 @@ test.describe('Play Flow', () => {
 
   test('cards render for all 4 seats', async ({ page }) => {
     await page.goto('/');
+    await page.click('button:has-text("Start Game")');
     await expect(page.locator('.game-table')).toBeVisible({ timeout: 30_000 });
 
     // Wait for AI turns to settle
@@ -41,6 +42,7 @@ test.describe('Play Flow', () => {
 
   test('game progresses past loading into active state', async ({ page }) => {
     await page.goto('/');
+    await page.click('button:has-text("Start Game")');
     await expect(page.locator('.game-table')).toBeVisible({ timeout: 30_000 });
 
     // Wait for AI turns to process

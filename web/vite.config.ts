@@ -7,12 +7,22 @@ export default defineConfig({
   plugins: [react(), wasm()],
   resolve: {
     alias: {
-      '@engine': path.resolve(__dirname, '../engine/pkg'),
+      '@engine': path.resolve(__dirname, './src/wasm-engine'),
     },
   },
   server: {
     fs: {
       allow: ['..'],
+    },
+    proxy: {
+      '/api': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+      },
+      '/ws': {
+        target: 'ws://localhost:3001',
+        ws: true,
+      },
     },
   },
   worker: {

@@ -10,11 +10,16 @@ interface BiddingPanelProps {
   phase: 'round1' | 'round2';
   upcard: CardData | null;
   isDealer: boolean;
+  /** Suit turned down in round 1 (engine value; -1 if unknown). Cannot be called in round 2. */
+  turnedDownSuit?: number;
   onBid: (action: number) => void;
 }
 
-export default function BiddingPanel({ phase, upcard, isDealer, onBid }: BiddingPanelProps) {
+export default function BiddingPanel({ phase, upcard, isDealer, turnedDownSuit, onBid }: BiddingPanelProps) {
   const upcardSuit = upcard?.suit ?? 0;
+  // The suit that cannot be called in round 2 (falls back to the upcard suit
+  // when the engine value isn't supplied).
+  const blockedSuit = turnedDownSuit != null && turnedDownSuit >= 0 ? turnedDownSuit : upcardSuit;
   const [goAlone, setGoAlone] = useState(false);
 
   return (
@@ -79,37 +84,45 @@ export default function BiddingPanel({ phase, upcard, isDealer, onBid }: Bidding
           </>
         ) : (
           <>
-            {[0, 1, 2, 3].map((suit) =>
-              suit !== upcardSuit ? (
-                <BidButton
-                  key={suit}
-                  label={`${SUIT_SYMBOLS[suit]} ${SUIT_NAMES[suit]}`}
-                  onClick={() => onBid(goAlone ? 7 + suit : 2 + suit)}
-                  color={SUIT_COLORS[suit]}
-                />
-              ) : null,
-            )}
+            {[0, 1, 2, 3].map((suit) => (
+              <BidButton
+                key={suit}
+                label={`${SUIT_SYMBOLS[suit]} ${SUIT_NAMES[suit]}`}
+                onClick={() => onBid(goAlone ? 7 + suit : 2 + suit)}
+                color={SUIT_COLORS[suit]}
+                disabled={suit === blockedSuit}
+              />
+            ))}
             {!isDealer && (
               <BidButton label="Pass" onClick={() => onBid(0)} color="#7f8c8d" />
             )}
           </>
         )}
       </div>
+
+      {/* Stick the dealer: the dealer cannot pass in round 2 */}
+      {phase === 'round2' && isDealer && (
+        <div style={{ color: '#f1c40f', fontSize: '0.75rem', textAlign: 'center', fontWeight: 600 }}>
+          Stick the dealer — you must call
+        </div>
+      )}
     </motion.div>
   );
 }
 
-function BidButton({ label, onClick, color, textColor = '#fff' }: {
+function BidButton({ label, onClick, color, textColor = '#fff', disabled = false }: {
   label: string;
   onClick: () => void;
   color: string;
   textColor?: string;
+  disabled?: boolean;
 }) {
   return (
     <motion.button
-      onClick={onClick}
-      whileHover={{ scale: 1.05 }}
-      whileTap={{ scale: 0.95 }}
+      onClick={disabled ? undefined : onClick}
+      disabled={disabled}
+      whileHover={disabled ? undefined : { scale: 1.05 }}
+      whileTap={disabled ? undefined : { scale: 0.95 }}
       style={{
         background: color,
         color: textColor,
@@ -118,7 +131,8 @@ function BidButton({ label, onClick, color, textColor = '#fff' }: {
         padding: '8px 16px',
         fontSize: '0.85rem',
         fontWeight: 600,
-        cursor: 'pointer',
+        cursor: disabled ? 'not-allowed' : 'pointer',
+        opacity: disabled ? 0.35 : 1,
       }}
     >
       {label}

@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 
 test.describe('Euchre Training App — Smoke Tests', () => {
-  test('1. App loads and shows game table', async ({ page }) => {
+  test('1. App loads and starts a game', async ({ page }) => {
     await page.goto('/');
 
     // Should see the nav links
@@ -9,9 +9,9 @@ test.describe('Euchre Training App — Smoke Tests', () => {
     await expect(page.locator('nav a', { hasText: 'History' })).toBeVisible();
     await expect(page.locator('nav a', { hasText: 'Settings' })).toBeVisible();
 
-    // Should see the game table (or loading state)
-    const gameTable = page.locator('.game-table, .loading');
-    await expect(gameTable).toBeVisible({ timeout: 10_000 });
+    // Start screen → game table
+    await page.click('button:has-text("Start Game")');
+    await expect(page.locator('.game-table')).toBeVisible({ timeout: 30_000 });
   });
 
   test('2. Settings page renders controls', async ({ page }) => {
@@ -51,6 +51,7 @@ test.describe('Euchre Training App — Smoke Tests', () => {
     });
 
     await page.goto('/');
+    await page.click('button:has-text("Start Game")');
     // Give WASM time to load
     await page.waitForTimeout(5_000);
 
