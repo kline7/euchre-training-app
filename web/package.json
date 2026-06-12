@@ -12,9 +12,7 @@
   },
   "dependencies": {
     "comlink": "^4.4.2",
-    "dexie": "^4.3.0",
-    "dexie-react-hooks": "^4.2.0",
-    "motion": "^12.34.5",
+"motion": "^12.34.5",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "wouter": "^3.9.0",

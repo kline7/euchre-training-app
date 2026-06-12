@@ -1,8 +1,7 @@
-import { useEffect, useReducer } from 'react';
+import { useEffect, useReducer, useState } from 'react';
 import { useParams } from 'wouter';
-import { useLiveQuery } from 'dexie-react-hooks';
-import { db } from '../db/schema';
-import type { CardRecord, DecisionRecord } from '../db/schema';
+import { getGame } from '../db/api';
+import type { GameRecord, CardRecord, DecisionRecord } from '../db/schema';
 import CardComponent from '../components/cards/Card';
 import './ReviewPage.css';
 
@@ -59,7 +58,28 @@ export default function ReviewPage() {
   const params = useParams<{ gameId: string }>();
   const gameId = Number(params.gameId);
 
-  const game = useLiveQuery(() => db.games.get(gameId), [gameId]);
+  const [game, setGame] = useState<GameRecord | undefined>(undefined);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    getGame(gameId)
+      .then((g) => {
+        if (cancelled) return;
+        setGame(g);
+        setLoading(false);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setError(err instanceof Error ? err.message : 'Failed to load game');
+        setLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [gameId, reloadKey]);
 
   const [nav, dispatch] = useReducer(reviewReducer, { handIndex: 0, playIndex: 0 });
 
@@ -77,8 +97,21 @@ export default function ReviewPage() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  if (!game) {
+  if (error) {
+    return (
+      <div className="review-page">
+        <p>Could not load game: {error}</p>
+        <button onClick={() => setReloadKey((k) => k + 1)}>Retry</button>
+      </div>
+    );
+  }
+
+  if (loading) {
     return <div className="loading"><p>Loading game...</p></div>;
+  }
+
+  if (!game) {
+    return <div className="review-page"><p>Game not found.</p></div>;
   }
 
   if (game.hands.length === 0) {
@@ -100,16 +133,18 @@ export default function ReviewPage() {
     if (idx >= 0) seatHand.splice(idx, 1);
   }
 
-  // Current trick: plays since last complete trick
-  const playsPerTrick = 4; // simplified — doesn't account for alone
+  // Current trick: plays since last complete trick (3 per trick when alone)
+  const playsPerTrick = hand.alone ? 3 : 4;
   const completeTricks = Math.floor(visiblePlays.length / playsPerTrick);
   const trickStart = completeTricks * playsPerTrick;
   const currentTrickPlays = visiblePlays.slice(trickStart);
 
-  // Find analysis for current play
+  // Find the analysis for the play we just stepped past. Decisions exist only
+  // for human plays with >1 legal option, so match by recorded playIndex.
+  // Old records without playIndex simply never match (panel stays hidden).
   const analysis = game.analysis?.[nav.handIndex];
   const currentDecision = analysis?.decisions.find(
-    (_d, i) => i === playIndex - 1
+    (d) => d.playIndex != null && d.playIndex === playIndex - 1
   );
 
   return (
@@ -192,8 +227,12 @@ export default function ReviewPage() {
           {analysis.decisions.map((d, i) => (
             <div
               key={i}
-              className={`review-decision-row ${i === playIndex - 1 ? 'active' : ''}`}
-              onClick={() => dispatch({ type: 'JUMP_TO', handIndex: nav.handIndex, playIndex: i + 1 })}
+              className={`review-decision-row ${d.playIndex != null && d.playIndex === playIndex - 1 ? 'active' : ''}`}
+              onClick={() => {
+                if (d.playIndex != null) {
+                  dispatch({ type: 'JUMP_TO', handIndex: nav.handIndex, playIndex: d.playIndex + 1 });
+                }
+              }}
             >
               <span
                 className="review-grade-badge"

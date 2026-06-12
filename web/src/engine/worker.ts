@@ -1,126 +1,209 @@
 import * as Comlink from 'comlink';
 
-// The Engine class is imported from the WASM module
-// This will be set up once wasm-bindgen generates the JS glue
-let Engine: any = null;
-let engine: any = null;
+// --- Typed boundary for the wasm-bindgen Engine ---
+// The generated .d.ts uses JsValue (= any) for serde-bridged values; this
+// interface narrows them to the shapes the engine actually produces/accepts.
+
+export interface EngineCard {
+  suit: number;
+  rank: number;
+}
+
+export interface EngineTrickCard {
+  seat: number;
+  card: EngineCard;
+}
+
+export interface EngineDecisionAnalysis {
+  played: EngineCard;
+  optimal: EngineCard;
+  wpc: number;
+  etd: number;
+  grade: string;
+}
+
+export interface EngineConfig {
+  seed: number;
+  difficulty: number;
+  dealer: number;
+  scores: [number, number];
+  /** House rule: trump may not be led until broken (default true). */
+  trump_must_be_broken?: boolean;
+}
+
+/** Opaque PIMC evaluation result — produced by evaluatePlays, consumed by analyzeDecision. */
+export type PimcResult = unknown;
+
+interface WasmEngine {
+  free(): void;
+  phase(): number;
+  get_hand(seat: number): EngineCard[];
+  get_legal_plays(): EngineCard[];
+  next_to_play(): number;
+  play_card(card: EngineCard): void;
+  get_ai_play(): EngineCard;
+  get_ai_bid(): number;
+  apply_bid(bidVal: number): void;
+  dealer_discard(card: EngineCard): void;
+  get_ai_discard(): EngineCard;
+  collect_trick(): void;
+  has_completed_trick(): boolean;
+  evaluate_plays(numDeterminizations: number, seed: bigint): PimcResult;
+  analyze_decision(pimcResult: PimcResult, playedCard: EngineCard): EngineDecisionAnalysis;
+  current_trick(): EngineTrickCard[];
+  tricks_won(): [number, number];
+  scores(): [number, number];
+  upcard(): EngineCard | null;
+  trump(): number;
+  dealer(): number;
+  maker(): number;
+  is_alone(): boolean;
+  sitting_out(): number;
+  trick_number(): number;
+  /** Returns [maker_points, is_euchre, is_sweep]. Throws if called twice or out of phase. */
+  score_hand(): [number, boolean, boolean];
+  /** Turned-down suit from round 1 (-1 if still in round 1). */
+  turned_down_suit(): number;
+  /** Winning team (0 or 1), or -1 if the game is not over. */
+  winner(): number;
+}
+
+type WasmEngineCtor = new (config: EngineConfig) => WasmEngine;
+
+let EngineCtor: WasmEngineCtor | null = null;
+let engine: WasmEngine | null = null;
+
+function requireEngine(): WasmEngine {
+  if (!engine) throw new Error('Engine not initialized');
+  return engine;
+}
 
 const api = {
-  async init(config: {
-    seed: number;
-    difficulty: number;
-    dealer: number;
-    scores: [number, number];
-  }) {
-    if (!Engine) {
+  async init(config: EngineConfig): Promise<boolean> {
+    let ctor = EngineCtor;
+    if (!ctor) {
       // Dynamic import of WASM module (built by wasm-bindgen CLI)
       const wasm = await import('@engine/euchre_engine');
       // Initialize the WASM runtime before using any exports
       await wasm.default();
-      Engine = wasm.Engine;
+      ctor = wasm.Engine as unknown as WasmEngineCtor;
+      EngineCtor = ctor;
     }
-    engine = new Engine(config);
+    // Free the previous instance to avoid leaking WASM memory
+    if (engine) {
+      engine.free();
+      engine = null;
+    }
+    engine = new ctor(config);
     return true;
   },
 
   phase(): number {
-    return engine.phase();
+    return requireEngine().phase();
   },
 
-  getHand(seat: number) {
-    return engine.get_hand(seat);
+  getHand(seat: number): EngineCard[] {
+    return requireEngine().get_hand(seat);
   },
 
-  getLegalPlays() {
-    return engine.get_legal_plays();
+  getLegalPlays(): EngineCard[] {
+    return requireEngine().get_legal_plays();
   },
 
   nextToPlay(): number {
-    return engine.next_to_play();
+    return requireEngine().next_to_play();
   },
 
-  playCard(card: { suit: number; rank: number }) {
-    engine.play_card(card);
+  playCard(card: EngineCard): void {
+    requireEngine().play_card(card);
   },
 
-  getAiPlay() {
-    return engine.get_ai_play();
+  getAiPlay(): EngineCard {
+    return requireEngine().get_ai_play();
   },
 
-  async getAiBid(): Promise<number> {
-    return engine.get_ai_bid();
+  getAiBid(): number {
+    return requireEngine().get_ai_bid();
   },
 
-  applyBid(bidVal: number) {
-    engine.apply_bid(bidVal);
+  applyBid(bidVal: number): void {
+    requireEngine().apply_bid(bidVal);
   },
 
-  dealerDiscard(card: { suit: number; rank: number }) {
-    engine.dealer_discard(card);
+  dealerDiscard(card: EngineCard): void {
+    requireEngine().dealer_discard(card);
   },
 
-  getAiDiscard() {
-    return engine.get_ai_discard();
+  getAiDiscard(): EngineCard {
+    return requireEngine().get_ai_discard();
   },
 
-  collectTrick() {
-    engine.collect_trick();
+  collectTrick(): void {
+    requireEngine().collect_trick();
   },
 
   hasCompletedTrick(): boolean {
-    return engine.has_completed_trick();
+    return requireEngine().has_completed_trick();
   },
 
-  evaluatePlays(numDeterminizations: number, seed: number) {
-    return engine.evaluate_plays(numDeterminizations, BigInt(seed));
+  evaluatePlays(numDeterminizations: number, seed: number): PimcResult {
+    return requireEngine().evaluate_plays(numDeterminizations, BigInt(seed));
   },
 
-  analyzeDecision(pimcResult: any, playedCard: { suit: number; rank: number }) {
-    return engine.analyze_decision(pimcResult, playedCard);
+  analyzeDecision(pimcResult: PimcResult, playedCard: EngineCard): EngineDecisionAnalysis {
+    return requireEngine().analyze_decision(pimcResult, playedCard);
   },
 
-  currentTrick() {
-    return engine.current_trick();
+  currentTrick(): EngineTrickCard[] {
+    return requireEngine().current_trick();
   },
 
-  tricksWon() {
-    return engine.tricks_won();
+  tricksWon(): [number, number] {
+    return requireEngine().tricks_won();
   },
 
-  scores() {
-    return engine.scores();
+  scores(): [number, number] {
+    return requireEngine().scores();
   },
 
-  upcard() {
-    return engine.upcard();
+  upcard(): EngineCard | null {
+    return requireEngine().upcard();
   },
 
   trump(): number {
-    return engine.trump();
+    return requireEngine().trump();
   },
 
   dealer(): number {
-    return engine.dealer();
+    return requireEngine().dealer();
   },
 
   maker(): number {
-    return engine.maker();
+    return requireEngine().maker();
   },
 
   isAlone(): boolean {
-    return engine.is_alone();
+    return requireEngine().is_alone();
   },
 
   sittingOut(): number {
-    return engine.sitting_out();
+    return requireEngine().sitting_out();
   },
 
   trickNumber(): number {
-    return engine.trick_number();
+    return requireEngine().trick_number();
   },
 
-  scoreHand() {
-    return engine.score_hand();
+  scoreHand(): [number, boolean, boolean] {
+    return requireEngine().score_hand();
+  },
+
+  turnedDownSuit(): number {
+    return requireEngine().turned_down_suit();
+  },
+
+  winner(): number {
+    return requireEngine().winner();
   },
 };
 

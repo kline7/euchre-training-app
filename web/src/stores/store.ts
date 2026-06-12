@@ -6,6 +6,10 @@ export interface Settings {
   animationSpeed: number; // 0.5-2.0 multiplier
   showHints: boolean;
   autoAnalyze: boolean;
+  /** House rule: trump may not be led until broken. False = standard euchre.
+   *  Applies to solo play and is sent as the preferred style when queueing
+   *  for multiplayer (only same-style players are matched). */
+  trumpMustBeBroken: boolean;
 }
 
 interface SettingsStore extends Settings {
@@ -13,6 +17,7 @@ interface SettingsStore extends Settings {
   setAnimationSpeed: (s: number) => void;
   setShowHints: (h: boolean) => void;
   setAutoAnalyze: (a: boolean) => void;
+  setTrumpMustBeBroken: (b: boolean) => void;
 }
 
 export const useSettings = create<SettingsStore>()(
@@ -22,10 +27,12 @@ export const useSettings = create<SettingsStore>()(
       animationSpeed: 1.0,
       showHints: true,
       autoAnalyze: true,
+      trumpMustBeBroken: true,
       setDifficulty: (d) => set({ difficulty: d }),
       setAnimationSpeed: (s) => set({ animationSpeed: s }),
       setShowHints: (h) => set({ showHints: h }),
       setAutoAnalyze: (a) => set({ autoAnalyze: a }),
+      setTrumpMustBeBroken: (b) => set({ trumpMustBeBroken: b }),
     }),
     { name: 'euchre-settings' },
   ),

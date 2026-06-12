@@ -82,11 +82,18 @@ impl TranspositionTable {
 
 /// Zobrist hash keys: random u64 for each (card_index, seat) pair.
 /// 24 cards × 4 seats = 96 keys.
-/// Plus keys for: trump (4), lead_seat (4), trick_number (5).
+/// Plus keys for: trump (4), lead_seat (4), trick_number (6), and
+/// tricks_won per team (6 each). lead_seat and tricks_won are part of the
+/// position identity: two positions with identical remaining hands can
+/// differ in who leads and in the running trick split, and the stored
+/// value is the ABSOLUTE team-0 trick total — omitting them caused
+/// transposition-table aliasing and wrong cached solves.
 struct ZobristKeys {
     card_seat: [[u64; 4]; 24], // card_index × seat
     trump: [u64; 4],
     trick_num: [u64; 6], // 0-5 (0 unused, 1-5 for tricks)
+    lead_seat: [u64; 4],
+    tricks_won: [[u64; 6]; 2], // team × tricks (0-5)
 }
 
 impl ZobristKeys {
@@ -108,8 +115,14 @@ impl ZobristKeys {
         for t in &mut trump { *t = next(); }
         let mut trick_num = [0u64; 6];
         for tn in &mut trick_num { *tn = next(); }
+        let mut lead_seat = [0u64; 4];
+        for l in &mut lead_seat { *l = next(); }
+        let mut tricks_won = [[0u64; 6]; 2];
+        for team in &mut tricks_won {
+            for t in team.iter_mut() { *t = next(); }
+        }
 
-        Self { card_seat, trump, trick_num }
+        Self { card_seat, trump, trick_num, lead_seat, tricks_won }
     }
 }
 
@@ -124,6 +137,9 @@ fn zobrist_hash(state: &GameState, keys: &ZobristKeys) -> u64 {
     }
     hash ^= keys.trump[state.trump as usize];
     hash ^= keys.trick_num[state.trick_number as usize];
+    hash ^= keys.lead_seat[state.lead_seat as usize];
+    hash ^= keys.tricks_won[0][state.tricks_won[0].min(5) as usize];
+    hash ^= keys.tricks_won[1][state.tricks_won[1].min(5) as usize];
     hash
 }
 
@@ -343,6 +359,71 @@ mod tests {
             set.insert(Card::new(suit, rank));
         }
         set
+    }
+
+    #[test]
+    fn hash_distinguishes_lead_seat_and_tricks_won() {
+        use Suit::*;
+        use Rank::*;
+        let hands = [
+            hand_from(&[(Hearts, Jack), (Hearts, Ace)]),
+            hand_from(&[(Clubs, Nine), (Clubs, Ten)]),
+            hand_from(&[(Diamonds, Jack), (Hearts, King)]),
+            hand_from(&[(Spades, Nine), (Spades, Ten)]),
+        ];
+        let mut state = GameState::new_hand(hands, Card::new(Hearts, Nine), 3, [0, 0]);
+        state.trump = Hearts;
+        state.phase = GamePhase::Playing;
+        state.trick_number = 4;
+        state.tricks_won = [2, 1];
+        state.lead_seat = 0;
+
+        let keys = ZobristKeys::new();
+        let base = zobrist_hash(&state, &keys);
+
+        // Same cards, different leader → different position → different hash
+        let mut diff_lead = state;
+        diff_lead.lead_seat = 1;
+        assert_ne!(base, zobrist_hash(&diff_lead, &keys));
+
+        // Same cards, different running trick split → different hash
+        let mut diff_tricks = state;
+        diff_tricks.tricks_won = [1, 2];
+        assert_ne!(base, zobrist_hash(&diff_tricks, &keys));
+    }
+
+    #[test]
+    fn solve_same_cards_different_leader_not_aliased() {
+        use Suit::*;
+        use Rank::*;
+        // One trick left. Seat 0 holds the King of trump, seat 1 the Ace.
+        // Whoever wins depends only on the cards (Ace beats King regardless
+        // of leader), but the TT must not serve seat-0-leads results for the
+        // seat-1-leads position. Solve both orders through one solver and
+        // verify each is independently correct.
+        let hands = [
+            hand_from(&[(Hearts, King)]),
+            hand_from(&[(Clubs, Nine)]),
+            hand_from(&[(Hearts, Queen)]),
+            hand_from(&[(Hearts, Ace)]),
+        ];
+        let mut a = GameState::new_hand(hands, Card::new(Hearts, Nine), 3, [0, 0]);
+        a.trump = Hearts;
+        a.phase = GamePhase::Playing;
+        a.trick_number = 5;
+        a.tricks_won = [3, 1];
+        a.lead_seat = 0;
+
+        // Identical except: team 1 already has 3 tricks and team 0 has 1.
+        let mut b = a;
+        b.tricks_won = [1, 3];
+
+        let mut solver = Solver::new();
+        let ra = solver.solve(&a);
+        let rb = solver.solve(&b); // would alias `a` under the old hash
+        // Seat 3's Ace of trump wins the last trick in both worlds
+        assert_eq!(ra.tricks, [3, 2]);
+        assert_eq!(rb.tricks, [1, 4]);
     }
 
     #[test]

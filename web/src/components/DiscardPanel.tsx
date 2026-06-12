@@ -1,10 +1,8 @@
 import { motion } from 'motion/react';
 
-interface DiscardPanelProps {
-  onDiscard: (card: never) => void;
-}
-
-export default function DiscardPanel({ onDiscard: _onDiscard }: DiscardPanelProps) {
+// Purely informational banner: the actual discard happens by clicking a card
+// in the hand (GameTable routes onPlayCard to the discard handler).
+export default function DiscardPanel() {
   return (
     <motion.div
       className="discard-panel"

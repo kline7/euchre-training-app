@@ -2,13 +2,7 @@ import { test, expect } from '@playwright/test';
 
 test.describe('Review Flow', () => {
   test('history page shows empty state when no games', async ({ page }) => {
-    // Clear IndexedDB
     await page.goto('/history');
-    await page.evaluate(() => {
-      const req = indexedDB.deleteDatabase('euchre-trainer');
-      return new Promise((resolve) => { req.onsuccess = resolve; req.onerror = resolve; });
-    });
-    await page.reload();
 
     await expect(page.locator('text=No games played yet')).toBeVisible({ timeout: 5_000 });
   });
