@@ -8,13 +8,18 @@ pub fn legal_plays(hand: CardSet, state: &GameState) -> CardSet {
         return CardSet::EMPTY;
     }
 
-    // If leading: cannot lead trump unless hand contains only trump
+    // Leading: trump may not be led until trump has been "broken" — i.e.
+    // some trump card has already been played face-up this hand (normally
+    // by a ruff). Exception: a hand holding only trump must lead it.
     if state.current_trick.is_empty() {
         let trump_mask = CardSet::effective_suit_mask(state.trump, state.trump);
+        let trump_broken = !state.played.intersection(trump_mask).is_empty();
+        if trump_broken {
+            return hand;
+        }
         let non_trump = hand.difference(trump_mask);
         if non_trump.is_empty() {
-            // Only trump in hand — must lead trump
-            return hand;
+            return hand; // only trump in hand — must lead it
         }
         return non_trump;
     }
@@ -79,8 +84,9 @@ pub fn trick_winner(trick: &[TrickCard], trump: Suit) -> TrickCard {
 pub fn play_card(state: &GameState, seat: Seat, card: Card) -> GameState {
     let mut new_state = state.clone();
 
-    // Remove card from hand
+    // Remove card from hand; it is now publicly visible
     new_state.hands[seat as usize].remove(card);
+    new_state.played.insert(card);
 
     // Track voids: if not following suit, mark void
     if let Some(led_suit) = state.led_suit() {
@@ -263,8 +269,8 @@ mod tests {
     }
 
     #[test]
-    fn leading_cannot_play_trump_when_non_trump_available() {
-        // Hand has mix of trump and non-trump — only non-trump legal
+    fn leading_trump_blocked_until_broken() {
+        // House rule: trump cannot be led until it has been played ("broken")
         let mut hand = CardSet::EMPTY;
         hand.insert(make_card(Hearts, Ace));  // trump
         hand.insert(make_card(Hearts, King)); // trump
@@ -278,11 +284,56 @@ mod tests {
         );
         state.trump = Hearts;
 
+        // No trump has been played yet — only the non-trump lead is legal
         let legal = legal_plays(hand, &state);
         assert_eq!(legal.count(), 1);
         assert!(legal.contains(make_card(Clubs, Nine)));
         assert!(!legal.contains(make_card(Hearts, Ace)));
         assert!(!legal.contains(make_card(Hearts, King)));
+    }
+
+    #[test]
+    fn leading_trump_legal_after_broken() {
+        let mut hand = CardSet::EMPTY;
+        hand.insert(make_card(Hearts, Ace));  // trump
+        hand.insert(make_card(Hearts, King)); // trump
+        hand.insert(make_card(Clubs, Nine));  // non-trump
+
+        let mut state = GameState::new_hand(
+            [hand, CardSet::EMPTY, CardSet::EMPTY, CardSet::EMPTY],
+            make_card(Hearts, Nine),
+            0,
+            [0, 0],
+        );
+        state.trump = Hearts;
+        // Someone ruffed earlier in the hand — trump is broken
+        state.played.insert(make_card(Hearts, Ten));
+
+        let legal = legal_plays(hand, &state);
+        assert_eq!(legal, hand);
+        assert!(legal.contains(make_card(Hearts, Ace)));
+        assert!(legal.contains(make_card(Hearts, King)));
+        assert!(legal.contains(make_card(Clubs, Nine)));
+    }
+
+    #[test]
+    fn left_bower_play_breaks_trump_for_leads() {
+        // The Left Bower IS trump: it being played breaks trump too
+        let mut hand = CardSet::EMPTY;
+        hand.insert(make_card(Hearts, Ace)); // trump
+        hand.insert(make_card(Clubs, Nine)); // non-trump
+
+        let mut state = GameState::new_hand(
+            [hand, CardSet::EMPTY, CardSet::EMPTY, CardSet::EMPTY],
+            make_card(Hearts, Nine),
+            0,
+            [0, 0],
+        );
+        state.trump = Hearts;
+        state.played.insert(make_card(Diamonds, Jack)); // Left Bower was played
+
+        let legal = legal_plays(hand, &state);
+        assert_eq!(legal, hand); // trump leads now allowed
     }
 
     #[test]
@@ -305,8 +356,8 @@ mod tests {
     }
 
     #[test]
-    fn leading_left_bower_counts_as_trump() {
-        // Left Bower (Jack of same-color suit) is trump — cannot lead it
+    fn leading_left_bower_counts_as_trump_lead() {
+        // The Left Bower is trump — it cannot be led before trump is broken
         let mut hand = CardSet::EMPTY;
         hand.insert(make_card(Diamonds, Jack)); // Left Bower when Hearts is trump
         hand.insert(make_card(Clubs, Ace));      // non-trump
@@ -322,7 +373,12 @@ mod tests {
         let legal = legal_plays(hand, &state);
         assert_eq!(legal.count(), 1);
         assert!(legal.contains(make_card(Clubs, Ace)));
-        assert!(!legal.contains(make_card(Diamonds, Jack))); // Left Bower is trump
+        assert!(!legal.contains(make_card(Diamonds, Jack)));
+
+        // After trump is broken the Left Bower lead becomes legal
+        state.played.insert(make_card(Hearts, King));
+        let legal = legal_plays(hand, &state);
+        assert_eq!(legal, hand);
     }
 
     // --- play_card state transition tests ---

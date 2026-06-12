@@ -116,6 +116,13 @@ pub struct GameState {
 
     // Tracking for AI: which suits each player is known void in
     pub known_voids: [CardSet; 4], // bits = suits voided (not cards — we reuse u32 for 4 suit bits)
+
+    // Cards that have been played face-up this hand (publicly visible info).
+    pub played: CardSet,
+
+    // The dealer's discard after picking up the upcard. Private to the
+    // dealer — only used when sampling from the dealer's own perspective.
+    pub discard: Option<Card>,
 }
 
 impl GameState {
@@ -136,6 +143,8 @@ impl GameState {
             tricks_won: [0, 0],
             scores,
             known_voids: [CardSet::EMPTY; 4],
+            played: CardSet::EMPTY,
+            discard: None,
         }
     }
 
@@ -176,13 +185,10 @@ impl GameState {
         self.current_trick.len() as u8 == self.active_players_in_trick()
     }
 
-    /// All cards that have been played so far (for card tracking).
+    /// All cards that have been played face-up so far (for card tracking).
+    /// Excludes the kitty and the dealer's discard, which are not public.
     pub fn played_cards(&self) -> CardSet {
-        let all_remaining = self.hands[0]
-            .union(self.hands[1])
-            .union(self.hands[2])
-            .union(self.hands[3]);
-        CardSet::FULL_DECK.difference(all_remaining)
+        self.played
     }
 }
 
@@ -340,21 +346,24 @@ mod tests {
     }
 
     #[test]
-    fn played_cards_tracks_removed_cards() {
+    fn played_cards_tracks_face_up_plays_only() {
         let h0 = hand_from(&[(Suit::Hearts, Rank::Ace), (Suit::Clubs, Rank::Nine)]);
         let h1 = hand_from(&[(Suit::Spades, Rank::King)]);
-        let state = GameState::new_hand(
+        let mut state = GameState::new_hand(
             [h0, h1, CardSet::EMPTY, CardSet::EMPTY],
             make_card(Suit::Hearts, Rank::Nine),
             0,
             [0, 0],
         );
+        state.trump = Suit::Spades;
+        state.phase = GamePhase::Playing;
+        state.lead_seat = 0;
 
-        let played = state.played_cards();
-        // 24 total - 3 in hands = 21 "played" (or rather, not in any hand)
-        assert_eq!(played.count(), 21);
-        assert!(!played.contains(make_card(Suit::Hearts, Rank::Ace)));
-        assert!(!played.contains(make_card(Suit::Clubs, Rank::Nine)));
-        assert!(!played.contains(make_card(Suit::Spades, Rank::King)));
+        // Nothing played yet — kitty/unseen cards are NOT "played"
+        assert_eq!(state.played_cards().count(), 0);
+
+        let after = crate::game::rules::play_card(&state, 0, make_card(Suit::Hearts, Rank::Ace));
+        assert_eq!(after.played_cards().count(), 1);
+        assert!(after.played_cards().contains(make_card(Suit::Hearts, Rank::Ace)));
     }
 }

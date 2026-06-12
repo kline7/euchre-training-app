@@ -64,9 +64,19 @@ pub fn analyze_decision(pimc: &PimcResult, played: Card) -> DecisionAnalysis {
         })
         .expect("PIMC result must have evaluations");
 
+    // The played card must be among the evaluated legal plays. If the caller
+    // passed mismatched positions, fall back to the WORST evaluation so the
+    // plumbing bug surfaces as a bad grade instead of silently scoring "Best".
+    let worst = pimc.evaluations.iter()
+        .min_by(|a, b| {
+            a.expected_points.partial_cmp(&b.expected_points)
+                .unwrap()
+                .then(a.win_probability.partial_cmp(&b.win_probability).unwrap())
+        })
+        .expect("PIMC result must have evaluations");
     let actual = pimc.evaluations.iter()
         .find(|e| e.card == played)
-        .unwrap_or(optimal);
+        .unwrap_or(worst);
 
     let wpc = (optimal.win_probability - actual.win_probability).max(0.0);
     let etd = optimal.expected_tricks - actual.expected_tricks;

@@ -54,29 +54,47 @@ pub fn choose_bid_for(state: &GameState, difficulty: Difficulty, _rng: &mut ChaC
 
     match state.phase {
         GamePhase::BiddingRound1 => {
-            let trump_count = count_trump(hand, trump_if_ordered);
-            let has_right = has_bower(hand, trump_if_ordered, true);
-            let has_left = has_bower(hand, trump_if_ordered, false);
+            // Ordering up sends the upcard to the DEALER. That's a boost
+            // when the dealer is you or your partner — and a gift to the
+            // opponents otherwise. Passing keeps the option of naming a
+            // (possibly better) suit yourself in round 2.
+            let is_dealer = seat == state.dealer;
+            let partner_is_dealer = (seat + 2) % 4 == state.dealer;
+
+            let strength = trump_strength(hand, trump_if_ordered) as i8;
+            let upcard_bonus: i8 = if is_dealer {
+                // We pick it up ourselves (and shed our worst card)
+                match state.upcard.trick_power(trump_if_ordered) {
+                    12 => 3,      // right bower
+                    10 | 11 => 2, // ace / left bower
+                    _ => 1,
+                }
+            } else if partner_is_dealer {
+                1 // partner gains a trump
+            } else {
+                -2 // we'd be arming the opposing dealer
+            };
+            let effective = strength + upcard_bonus;
+
+            // Patience: if another suit is clearly stronger, wait and try
+            // to name it in round 2 instead of ordering up.
+            let best_alternative = [Suit::Hearts, Suit::Diamonds, Suit::Clubs, Suit::Spades]
+                .into_iter()
+                .filter(|&s| s != trump_if_ordered)
+                .map(|s| trump_strength(hand, s) as i8)
+                .max()
+                .unwrap_or(0);
+            let prefer_waiting = best_alternative >= strength + 2 && effective < 8;
 
             let wants_order_up = match difficulty {
-                Difficulty::Novice => {
-                    trump_count >= 3
-                }
-                Difficulty::Intermediate => {
-                    (trump_count >= 2 && (has_right || has_left)) || trump_count >= 3
-                }
-                Difficulty::Advanced => {
-                    let is_dealer = seat == state.dealer;
-                    let strength = trump_strength(hand, trump_if_ordered);
-                    strength >= 5 || (strength >= 4 && is_dealer)
-                }
+                // Novice over-values its hand and never strategizes about round 2
+                Difficulty::Novice => effective >= 5,
+                Difficulty::Intermediate => effective >= 6,
+                Difficulty::Advanced => effective >= 6 && !prefer_waiting,
                 Difficulty::Expert => {
-                    let is_dealer = seat == state.dealer;
-                    let is_partner = (seat + 2) % 4 == state.dealer;
-                    let strength = trump_strength(hand, trump_if_ordered);
                     let score_pressure = needs_points(state, seat);
-                    strength >= 5 || (strength >= 4 && (is_dealer || is_partner))
-                        || (strength >= 3 && score_pressure)
+                    let threshold = if score_pressure { 5 } else { 6 };
+                    effective >= threshold && !prefer_waiting
                 }
             };
 
@@ -91,23 +109,24 @@ pub fn choose_bid_for(state: &GameState, difficulty: Difficulty, _rng: &mut ChaC
             }
         }
         GamePhase::BiddingRound2 => {
-            // Try each suit except the turned-down suit
+            // Try each suit except the turned-down suit, by hand strength
             let turned_down = state.upcard.suit;
             let mut best_suit: Option<Suit> = None;
-            let mut best_count = 0u8;
+            let mut best_strength = 0u8;
+
+            let threshold = match difficulty {
+                Difficulty::Novice => 4,
+                Difficulty::Intermediate => 5,
+                Difficulty::Advanced | Difficulty::Expert => {
+                    if seat == state.dealer { 4 } else { 5 }
+                }
+            };
 
             for suit in [Suit::Hearts, Suit::Diamonds, Suit::Clubs, Suit::Spades] {
                 if suit == turned_down { continue; }
-                let count = count_trump(hand, suit);
-                let threshold = match difficulty {
-                    Difficulty::Novice => 3,
-                    Difficulty::Intermediate => 2,
-                    Difficulty::Advanced | Difficulty::Expert => {
-                        if seat == state.dealer { 2 } else { 3 }
-                    }
-                };
-                if count >= threshold && count > best_count {
-                    best_count = count;
+                let s = trump_strength(hand, suit);
+                if s >= threshold && s > best_strength {
+                    best_strength = s;
                     best_suit = Some(suit);
                 }
             }
@@ -266,7 +285,13 @@ fn expert_play(
         let tricks_needed = 3u8.saturating_sub(state.tricks_won[team as usize]);
 
         if tricks_needed == 0 {
-            // Already won — dump lowest card
+            // Already won — dump lowest card, keeping trump for a possible sweep
+            let lowest_non_trump = cards.iter()
+                .filter(|c| c.effective_suit(state.trump) != state.trump)
+                .min_by_key(|c| c.trick_power(state.trump));
+            if let Some(card) = lowest_non_trump {
+                return *card;
+            }
             return *cards.iter().min_by_key(|c| c.trick_power(state.trump)).unwrap();
         }
 
@@ -348,20 +373,6 @@ fn expert_play(
 fn count_trump(hand: CardSet, trump: Suit) -> u8 {
     let trump_mask = CardSet::effective_suit_mask(trump, trump);
     hand.intersection(trump_mask).count() as u8
-}
-
-fn has_bower(hand: CardSet, trump: Suit, right: bool) -> bool {
-    if right {
-        hand.contains(Card::new(trump, Rank::Jack))
-    } else {
-        let left_suit = match trump {
-            Suit::Hearts => Suit::Diamonds,
-            Suit::Diamonds => Suit::Hearts,
-            Suit::Clubs => Suit::Spades,
-            Suit::Spades => Suit::Clubs,
-        };
-        hand.contains(Card::new(left_suit, Rank::Jack))
-    }
 }
 
 fn trump_strength(hand: CardSet, trump: Suit) -> u8 {
@@ -506,20 +517,114 @@ mod tests {
     }
 
     #[test]
-    fn novice_bids_with_3_trump() {
+    fn orders_up_with_strong_hand_and_partner_dealer() {
+        // Right bower + left bower + ace of trump (strength 7), partner is
+        // the dealer (+1) — a clear order-up for every difficulty
+        let hand = hand_from(&[
+            (Hearts, Jack), (Diamonds, Jack), (Hearts, Ace),
+            (Clubs, Nine), (Spades, Nine),
+        ]);
+        let mut state = GameState::new_hand(
+            [hand, CardSet::EMPTY, CardSet::EMPTY, CardSet::EMPTY],
+            Card::new(Hearts, Nine), 2, [0, 0], // dealer 2 = seat 0's partner
+        );
+        state.phase = GamePhase::BiddingRound1;
+        let mut rng = ChaCha20Rng::seed_from_u64(42);
+
+        for difficulty in [Difficulty::Novice, Difficulty::Intermediate, Difficulty::Advanced, Difficulty::Expert] {
+            let bid = choose_bid_for(&state, difficulty, &mut rng, 0);
+            assert!(
+                matches!(bid, BidAction::OrderUp | BidAction::GoAlone),
+                "{:?} should order up a monster hand, got {:?}",
+                difficulty,
+                bid
+            );
+        }
+    }
+
+    #[test]
+    fn reluctant_to_order_into_opponent_dealer() {
+        // A decent (not great) upcard-suit holding, but the DEALER IS AN
+        // OPPONENT: ordering up hands them a trump. Should pass.
         let hand = hand_from(&[
             (Hearts, Ace), (Hearts, King), (Hearts, Queen),
             (Clubs, Nine), (Spades, Nine),
         ]);
         let mut state = GameState::new_hand(
             [hand, CardSet::EMPTY, CardSet::EMPTY, CardSet::EMPTY],
-            Card::new(Hearts, Nine), 3, [0, 0],
+            Card::new(Hearts, Nine), 3, [0, 0], // dealer 3 = seat 0's opponent
         );
         state.phase = GamePhase::BiddingRound1;
         let mut rng = ChaCha20Rng::seed_from_u64(42);
 
-        let bid = choose_bid(&state, Difficulty::Novice, &mut rng);
-        assert_eq!(bid, BidAction::OrderUp);
+        for difficulty in [Difficulty::Intermediate, Difficulty::Advanced, Difficulty::Expert] {
+            let bid = choose_bid_for(&state, difficulty, &mut rng, 0);
+            assert_eq!(
+                bid,
+                BidAction::Pass,
+                "{:?} should not arm the opposing dealer with a mediocre hand",
+                difficulty
+            );
+        }
+    }
+
+    #[test]
+    fn waits_for_round_2_when_own_suit_is_stronger() {
+        // Borderline upcard suit (hearts) but a MONSTER clubs suit: the
+        // smarter tiers pass round 1 to name clubs themselves in round 2.
+        let hand = hand_from(&[
+            (Hearts, Ace), (Hearts, King),               // hearts: strength 3
+            (Clubs, Jack), (Spades, Jack), (Clubs, Ace), // clubs: both bowers + ace = 7
+        ]);
+        let mut state = GameState::new_hand(
+            [hand, CardSet::EMPTY, CardSet::EMPTY, CardSet::EMPTY],
+            Card::new(Hearts, Nine), 2, [0, 0], // even with partner as dealer
+        );
+        state.phase = GamePhase::BiddingRound1;
+        let mut rng = ChaCha20Rng::seed_from_u64(42);
+
+        for difficulty in [Difficulty::Advanced, Difficulty::Expert] {
+            let bid = choose_bid_for(&state, difficulty, &mut rng, 0);
+            assert_eq!(
+                bid,
+                BidAction::Pass,
+                "{:?} should wait to call its stronger suit in round 2",
+                difficulty
+            );
+        }
+
+        // ...and in round 2 it actually calls clubs
+        state.phase = GamePhase::BiddingRound2;
+        let bid = choose_bid_for(&state, Difficulty::Expert, &mut rng, 0);
+        match bid {
+            BidAction::CallSuit(suit) | BidAction::GoAloneCall(suit) => {
+                assert_eq!(suit, Clubs);
+            }
+            other => panic!("expected a clubs call in round 2, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn dealer_counts_the_pickup_when_deciding() {
+        // As the dealer, picking up the right bower turns a marginal hand
+        // into a call: hand strength 4 + right-bower pickup (+3) = 7
+        let hand = hand_from(&[
+            (Hearts, Ace), (Hearts, King),
+            (Diamonds, Ace), (Clubs, Nine), (Spades, Nine),
+        ]);
+        let mut state = GameState::new_hand(
+            [hand, CardSet::EMPTY, CardSet::EMPTY, CardSet::EMPTY],
+            Card::new(Hearts, Jack), 0, [0, 0], // seat 0 IS the dealer; upcard = right bower
+        );
+        state.phase = GamePhase::BiddingRound1;
+        let mut rng = ChaCha20Rng::seed_from_u64(42);
+
+        let bid = choose_bid_for(&state, Difficulty::Expert, &mut rng, 0);
+        assert!(
+            matches!(bid, BidAction::OrderUp | BidAction::GoAlone),
+            "dealer should pick up the right bower, got {:?}",
+            bid
+        );
     }
 
     #[test]
@@ -552,8 +657,13 @@ mod tests {
         state.phase = GamePhase::BiddingRound2;
         let mut rng = ChaCha20Rng::seed_from_u64(42);
 
-        let bid = choose_bid(&state, Difficulty::Novice, &mut rng);
-        // Stuck dealer must call something
-        matches!(bid, BidAction::CallSuit(_));
+        let bid = choose_bid_for(&state, Difficulty::Novice, &mut rng, 0);
+        // Stuck dealer must call something, and never the turned-down suit
+        match bid {
+            BidAction::CallSuit(suit) | BidAction::GoAloneCall(suit) => {
+                assert_ne!(suit, Hearts, "must not call the turned-down suit");
+            }
+            other => panic!("stuck dealer must call a suit, got {:?}", other),
+        }
     }
 }
